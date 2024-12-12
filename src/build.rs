@@ -7,7 +7,7 @@ use rust_htslib::bam::{self, Read};
 use indicatif::ProgressBar;
 
 
-// Import the skydive module, which contains the necessary functions for building graphs
+
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
