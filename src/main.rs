@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 mod build;
+mod agg;
+mod call;
 
 #[derive(Debug, Parser)]
 #[clap(name = "mito_graph")]
@@ -13,15 +15,15 @@ struct Cli {
     command: Commands,
 }
 
-const DEFAULT_KMER_SIZE: usize = 17;
+const DEFAULT_KMER_SIZE: usize = 21;
 
 #[derive(Debug, Subcommand)]
 
 enum Commands {
-    /// Build series-parallel graph from long-read data in multi-sample FASTA file.
+    /// Build graph from long-read data in FASTA or Bam file.
     #[clap(arg_required_else_help = true)]
     Build {
-        /// Output path for series-parallel graph.
+        /// Output path for anchor graph.
         #[clap(short, long, value_parser, default_value = "/dev/stdout")]
         output: PathBuf,
 
@@ -37,6 +39,33 @@ enum Commands {
         #[clap(required = true, value_parser)]
         read_path: PathBuf,
     },
+
+    ///Call Variants from Anchor Graph
+    #[clap(arg_required_else_help = true)]
+    Call {
+        /// path for anchor graph.
+        #[clap(short, long, value_parser)]
+        graphfile: PathBuf,
+
+        /// Name of sequence to use as reference.
+        #[clap(short, long, value_parser, required = true)]
+        ref_strain: String,
+
+        /// Kmer-size
+        #[clap(short, long, value_parser, default_value_t = DEFAULT_KMER_SIZE)]
+        k: usize,
+        /// max Length to do alignment
+        #[clap(short, long, value_parser, default_value_t = 3000)]
+        maxlength: usize, 
+
+        /// minimal allele count for variants
+        #[clap(short, long, value_parser, default_value_t = 1)]
+        minimal_ac: usize,
+        /// output file name
+        #[clap(short, long, value_parser, required = true)]
+        output_file: String,
+
+    },
 }
 
 fn main() {
@@ -49,6 +78,17 @@ fn main() {
             reference_path,
         } => {
             build::start(&output, kmer_size, &read_path, &reference_path);
+        }
+
+        Commands::Call {
+            graphfile,
+            ref_strain,
+            k,
+            maxlength,
+            minimal_ac,
+            output_file
+        } => {
+            call::start(&graphfile, &ref_strain, k, maxlength, minimal_ac, &output_file);
         }
     }
 }

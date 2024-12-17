@@ -5,9 +5,11 @@ edition = "2021"
 
 [dependencies]
 bio = "2.0.1"
+ndarray = "0.15"
 flate2 = "1.0.30"
 clap = { version = "4.5.1", features = ["derive"] }
 serde_json = "1.0.120"
 serde = "1.0.204"
 rust-htslib = "0.44.1"
 indicatif = "0.17.0"
+rayon = "1.7"
