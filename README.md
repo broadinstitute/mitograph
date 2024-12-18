@@ -3,7 +3,7 @@
 Building Mitochondrial anchor-based graphical genome from long reads. Call very low frequent heteroplasmies from graph.
 
 ## Usage
-### install cargo (rust environment)
+### install rust
 ```
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
