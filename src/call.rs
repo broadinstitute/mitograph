@@ -1,6 +1,7 @@
 use agg::*;
 use bio::bio_types::genome::Length;
 use std::{collections::HashSet, path::PathBuf};
+use std::collections::HashMap;
 use bio::alignment::pairwise::*;
 use bio::alignment::AlignmentOperation;
 use std::fs::File;
@@ -344,40 +345,36 @@ fn collapse_identical_records(variants: Vec<Variant>) -> Vec<Variant> {
         return Vec::new();
     }
 
-    // Sort variants by position and ref_allele length
-    let mut sorted_vars = variants;
-    sorted_vars.sort_by_key(|x| (x.pos, x.ref_allele.len(), x.alt_allele.len()));
-    
-    let mut collapsed = Vec::new();
-    let mut current = sorted_vars[0].clone();  // Assuming Variant implements Clone
+    let mut collapsed = HashMap::new();
+   
+    for current_var in variants {
+        
+        let mut pos = current_var.pos;
+        let mut ref_allele = current_var.ref_allele;
+        let mut alt_allele = current_var.alt_allele;
+        let mut variant_type = current_var.variant_type;
+        let mut allele_count = current_var.allele_count;
 
-    // Process all variants after the first one
-    for next_var in sorted_vars.iter().skip(1) {
-        if next_var.pos == current.pos && 
-           next_var.alt_allele == current.alt_allele && 
-           next_var.ref_allele == current.ref_allele {
-            // Update current with combined allele_count
-            current = Variant {
-                pos: current.pos,
-                ref_allele: current.ref_allele.clone(),
-                alt_allele: current.alt_allele.clone(),
-                variant_type: current.variant_type.clone(),
-                allele_count: current.allele_count + next_var.allele_count,
-            };
-            continue;
-        }
-        collapsed.push(current);
-        current = next_var.clone();
+        let key = (pos, ref_allele.clone(), alt_allele.clone(), variant_type.clone());
+        *collapsed.entry(key).or_insert(0) += allele_count;
     }
-    // Add the last variant
-    collapsed.push(current);
+    collapsed.into_iter()
+    .map(|((pos, ref_allele, alt_allele, variant_type), allele_count)| {
+        Variant {
+            pos,
+            ref_allele,
+            alt_allele,
+            variant_type,
+            allele_count,
+        }
+    })
+    .collect()
 
-    collapsed
 }
 
 fn format_vcf_record(variant: &Variant) -> String {
     // Add AC (allele count) to INFO field
-    let info = format!("AC={}", variant.allele_count);
+    let info = format!("RC={}", variant.allele_count);
     
     match variant.variant_type.as_str() {
         "SNP" => format!(
@@ -412,13 +409,22 @@ fn write_vcf(variants: &[Variant], output_file: &str, minimal_ac: usize) -> std:
     writeln!(file, "##fileformat=VCFv4.2")?;
     writeln!(file, "##reference=chrM")?;
     writeln!(file, "##contig=<ID=chrM,length=16569>")?;
-    writeln!(file, "##INFO=<ID=AC,Number=1,Type=Integer,Description=\"Allele count\">")?;
+    writeln!(file, "##INFO=<ID=RC,Number=1,Type=Integer,Description=\"Read count\">")?;
     writeln!(file, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">")?;
     writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")?;
 
     // Sort variants by position
     let mut sorted_variants = variants.to_vec();
-    sorted_variants.sort_by_key(|x| x.pos);
+    sorted_variants.sort_by(|a, b| {
+        // First compare positions
+        a.pos.cmp(&b.pos)
+            // Then compare variant types (to ensure consistent ordering)
+            .then(a.variant_type.cmp(&b.variant_type))
+            // Then compare ref alleles
+            .then(a.ref_allele.cmp(&b.ref_allele))
+            // Then compare alt alleles
+            .then(a.alt_allele.cmp(&b.alt_allele))
+    });
 
     // Write variant records
     for variant in sorted_variants {
