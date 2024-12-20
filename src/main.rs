@@ -5,9 +5,10 @@ use clap::{Parser, Subcommand};
 mod build;
 mod agg;
 mod call;
+mod filter;
 
 #[derive(Debug, Parser)]
-#[clap(name = "mito_graph")]
+#[clap(name = "mitograph")]
 #[clap(about = "Analysis of mitochondrial genome using long reads.", long_about = None)]
 
 struct Cli {
@@ -17,9 +18,30 @@ struct Cli {
 
 const DEFAULT_KMER_SIZE: usize = 21;
 
+
 #[derive(Debug, Subcommand)]
 
 enum Commands {
+    /// Filter reads derived from Numts
+    #[clap(arg_required_else_help = true)]
+    Filter {
+        /// input path for bam file.
+        #[clap(short, long, value_parser, required = true)]
+        input_bam: PathBuf,
+
+        /// contig name in the bam file
+        #[clap(short, long, value_parser)]
+        chromo: String,
+
+        /// output path for mtDNA bam file
+        #[clap(short, long, value_parser, required = true)]
+        mt_output: PathBuf,
+
+        /// output path for numts bam file
+        #[clap(short, long, required = true, value_parser)]
+        numts_output: PathBuf,
+    },
+
     /// Build graph from long-read data in FASTA or Bam file.
     #[clap(arg_required_else_help = true)]
     Build {
@@ -71,6 +93,15 @@ enum Commands {
 fn main() {
     let args = Cli::parse();
     match args.command {
+        Commands::Filter {
+            input_bam,
+            chromo,
+            mt_output,
+            numts_output,
+        } => {
+            filter::start(&input_bam, &chromo, &mt_output, &numts_output);
+        }
+
         Commands::Build {
             output,
             kmer_size,
