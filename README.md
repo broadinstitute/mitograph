@@ -15,7 +15,7 @@ cd mitograph
 cargo build --release
 
 # filter reads from numts based on SA tag
-./target/release/mitograph filter -i <input.bam> -c <contig_name> -m <mt_test.bam> -n <numts_test.bam>
+./target/release/mitograph filter -i <input.bam> -c <contig_name, e.g. chrM> -m <mt_test.bam> -n <numts_test.bam>
 
 # construct graph
 ./target/release/mito_graph build -k <kmer_size> -r <NC_012920.1.fasta> -o <output.gfa> <mt_test.bam>
