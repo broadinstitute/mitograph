@@ -78,7 +78,7 @@ enum Commands {
         k: usize,
         /// max Length to do alignment
         #[clap(short, long, value_parser, default_value_t = 3000)]
-        maxlength: usize, 
+        length_max: usize, 
 
         /// minimal allele count for variants
         #[clap(short, long, value_parser, default_value_t = 1)]
@@ -115,11 +115,11 @@ fn main() {
             graphfile,
             ref_strain,
             k,
-            maxlength,
+            length_max,
             minimal_ac,
             output_file
         } => {
-            call::start(&graphfile, &ref_strain, k, maxlength, minimal_ac, &output_file);
+            call::start(&graphfile, &ref_strain, k, length_max, minimal_ac, &output_file);
         }
     }
 }
