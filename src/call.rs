@@ -182,7 +182,8 @@ pub struct Variant {
     pub allele_count: usize,
 }
 
-pub fn get_variants_from_cigar (cigar: &str, ref_seq: &str, alt_seq: &str, ref_start: usize, allelecount: usize) -> Vec<Variant> {
+pub fn get_variants_from_cigar (cigar: &str, ref_seq: &str, alt_seq: &str, ref_start: usize, allelecount: usize) -> (Vec<Variant>, HashMap<usize, usize>) {
+    let mut poscount = HashMap::new();
     let mut variants = Vec::new();
     let mut ref_pos = 0;
     let mut alt_pos = 0;
@@ -203,12 +204,17 @@ pub fn get_variants_from_cigar (cigar: &str, ref_seq: &str, alt_seq: &str, ref_s
     for (length, op) in operations {
         match op {
             '=' => {
+                for i in 0..length {
+                    let pos = ref_start + ref_pos + i;
+                    *poscount.entry(pos).or_insert(0) += allelecount;
+                }
                 ref_pos += length;
                 alt_pos += length;
             },
             'X' => {
                 for i in 0..length {
                     let pos = ref_start + ref_pos + i;
+                    *poscount.entry(pos).or_insert(0) += allelecount;
                     let ref_allele = &ref_seq[ref_pos + i..ref_pos + i + 1];
                     let alt_allele = &alt_seq[alt_pos + i..alt_pos + i + 1];
                     variants.push(Variant {
@@ -292,10 +298,11 @@ pub fn get_variants_from_cigar (cigar: &str, ref_seq: &str, alt_seq: &str, ref_s
 
         }
     }
-    variants
+    (variants, poscount)
 }
 
-pub fn get_variant (graph: &mut GraphicalGenome, k: usize, ref_name: &str ) ->  Vec<Variant>{
+pub fn get_variant (graph: &mut GraphicalGenome, k: usize, ref_name: &str ) ->  (Vec<Variant>, HashMap<usize, usize>){
+    let mut coverage = HashMap::new();
     let mut var = Vec::new();
     let mut edgelist: Vec<_> = graph.edges.keys().collect();
     edgelist.sort();
@@ -334,10 +341,15 @@ pub fn get_variant (graph: &mut GraphicalGenome, k: usize, ref_name: &str ) ->  
                                                  .and_then(|seq| seq.as_str())   )
                 .unwrap_or("");
         let alt_sequence = src_seq.to_string() + &graph.edges.get(edge).expect("edge not found").get("seq").and_then(|v| v.as_str()).unwrap_or("");
-        let variants = get_variants_from_cigar(&cigar.to_string(), &ref_seq, &alt_sequence, refstart as usize, allele_count);
+        let (variants, poscounts) = get_variants_from_cigar(&cigar.to_string(), &ref_seq, &alt_sequence, refstart as usize, allele_count);
         var.extend(variants);
+
+        for (pos, count) in poscounts.iter(){
+            *coverage.entry(*pos).or_insert(0) += count;
+        }
+
     }
-    var
+    (var, coverage)
 }
 
 fn collapse_identical_records(variants: Vec<Variant>) -> Vec<Variant> {
@@ -372,9 +384,10 @@ fn collapse_identical_records(variants: Vec<Variant>) -> Vec<Variant> {
 
 }
 
-fn format_vcf_record(variant: &Variant) -> String {
+fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>,) -> String {
     // Add AC (allele count) to INFO field
-    let info = format!("RC={}", variant.allele_count);
+    let allele_frequency = variant.allele_count as f32 / coverage[&variant.pos] as f32;
+    let info = format!("RC={};AF={}", variant.allele_count, allele_frequency);
     
     match variant.variant_type.as_str() {
         "SNP" => format!(
@@ -402,7 +415,7 @@ fn format_vcf_record(variant: &Variant) -> String {
     }
 }
 
-fn write_vcf(variants: &[Variant], output_file: &str, minimal_ac: usize) -> std::io::Result<()> {
+fn write_vcf(variants: &[Variant], coverage: HashMap<usize, usize>,output_file: &str, minimal_ac: usize) -> std::io::Result<()> {
     let mut file = File::create(Path::new(output_file))?;
 
     // Write VCF header
@@ -433,7 +446,7 @@ fn write_vcf(variants: &[Variant], output_file: &str, minimal_ac: usize) -> std:
             continue
         }
         
-        writeln!(file, "{}", format_vcf_record(&variant))?;
+        writeln!(file, "{}", format_vcf_record(&variant, coverage.clone()))?;
     }
 
     Ok(())
@@ -504,9 +517,9 @@ pub fn start (graph_file: &PathBuf, ref_strain: &str, k: usize, maxlength: usize
     let mut graph = agg::GraphicalGenome::load_graph(graph_file).unwrap();
     // generate cigar
     let mut graph_with_cigar = generate_cigar(graph, ref_strain, k, maxlength, 2);
-    let Variants = get_variant(&mut graph_with_cigar, k, ref_strain);
+    let (Variants, coverage )= get_variant(&mut graph_with_cigar, k, ref_strain);
     let collapsed_var = collapse_identical_records (Variants);
-    let _ = write_vcf(&collapsed_var, output_file, minimal_ac);
+    let _ = write_vcf(&collapsed_var, coverage, output_file, minimal_ac);
     let graph_output = graph_file.with_extension("annotated.gfa");
     let _ = write_graph_from_graph(graph_output.to_str().unwrap(), &graph_with_cigar);
 
