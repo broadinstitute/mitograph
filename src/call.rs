@@ -387,7 +387,7 @@ fn collapse_identical_records(variants: Vec<Variant>) -> Vec<Variant> {
 fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>,) -> String {
     // Add AC (allele count) to INFO field
     let allele_frequency = variant.allele_count as f32 / coverage[&variant.pos] as f32;
-    let info = format!("RC={};AF={}", variant.allele_count, allele_frequency);
+    let info = format!("RC={};DP={};AF={}", variant.allele_count, coverage[&variant.pos], allele_frequency);
     
     match variant.variant_type.as_str() {
         "SNP" => format!(
@@ -422,7 +422,9 @@ fn write_vcf(variants: &[Variant], coverage: HashMap<usize, usize>,output_file: 
     writeln!(file, "##fileformat=VCFv4.2")?;
     writeln!(file, "##reference=chrM")?;
     writeln!(file, "##contig=<ID=chrM,length=16569>")?;
-    writeln!(file, "##INFO=<ID=RC,Number=1,Type=Integer,Description=\"Read count\">")?;
+    writeln!(file, "##INFO=<ID=RC,Number=1,Type=Integer,Description=\"Read Count\">")?;
+    writeln!(file, "##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Read Depth\">")?;
+    writeln!(file, "##INFO=<ID=AF,Number=1,Type=Float,Description=\"Allele Frequency\">")?;
     writeln!(file, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">")?;
     writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")?;
 
@@ -443,6 +445,10 @@ fn write_vcf(variants: &[Variant], coverage: HashMap<usize, usize>,output_file: 
     for variant in sorted_variants {
         let allele_count = variant.allele_count;
         if allele_count < minimal_ac + 1{
+            continue
+        }
+        let ref_allele = variant.ref_allele.as_str();
+        if ref_allele.contains("N") {
             continue
         }
         
