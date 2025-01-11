@@ -276,6 +276,9 @@ pub fn create_edge_file(
     let bar = ProgressBar::new(all_seq.len() as u64);
 
     for (contig_name, contig) in all_seq.iter() {
+        if contig.len() < k + 1{
+            continue
+        }
         contig_index += 1;
         bar.inc(1);
         // let contig_name = record.id().to_string();
