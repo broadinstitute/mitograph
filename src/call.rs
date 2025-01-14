@@ -386,8 +386,13 @@ fn collapse_identical_records(variants: Vec<Variant>) -> Vec<Variant> {
 
 fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>,) -> String {
     // Add AC (allele count) to INFO field
-    let allele_frequency = variant.allele_count as f32 / coverage[&variant.pos] as f32;
-    let info = format!("RC={};DP={};AF={}", variant.allele_count, coverage[&variant.pos], allele_frequency);
+    let read_depth = coverage.get(&variant.pos).unwrap_or(&0);
+    let allele_frequency = if *read_depth == 0{
+        0.0
+    }else{
+        variant.allele_count as f32 / *read_depth as f32
+    };
+    let info = format!("RC={};DP={};AF={}", variant.allele_count, read_depth, allele_frequency);
     
     match variant.variant_type.as_str() {
         "SNP" => format!(
