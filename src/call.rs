@@ -263,6 +263,7 @@ pub fn get_variants_from_cigar (cigar: &str, ref_seq: &str, alt_seq: &str, ref_s
                     let pos = ref_start + ref_pos + i;
                     *poscount.entry(pos).or_insert(0) += allelecount;
                 }
+                let pos = ref_start + ref_pos;
                 let ref_allele = match ref_seq.get(ref_pos - 1..ref_pos + length) {
                     Some(allele) => allele,
                     None => {
