@@ -71,7 +71,7 @@ enum Commands {
 
         /// Name of sequence to use as reference.
         #[clap(short, long, value_parser, required = true)]
-        ref_strain: String,
+        name: String,
 
         /// Kmer-size
         #[clap(short, long, value_parser, default_value_t = DEFAULT_KMER_SIZE)]
@@ -86,6 +86,10 @@ enum Commands {
         /// output file name
         #[clap(short, long, value_parser, required = true)]
         output_file: String,
+        /// reference path
+        #[clap(short, long, value_parser, required = true)]
+        reference_path: PathBuf,
+        
 
     },
 }
@@ -113,13 +117,14 @@ fn main() {
 
         Commands::Call {
             graphfile,
-            ref_strain,
+            name,
             k,
             length_max,
             minimal_ac,
-            output_file
+            output_file,
+            reference_path
         } => {
-            call::start(&graphfile, &ref_strain, k, length_max, minimal_ac, &output_file);
+            call::start(&graphfile, &name, k, length_max, minimal_ac, &output_file, &reference_path);
         }
     }
 }

@@ -1,5 +1,4 @@
 use agg::*;
-use bio::bio_types::genome::Length;
 use std::{collections::HashSet, path::PathBuf};
 use std::collections::HashMap;
 use bio::alignment::pairwise::*;
@@ -10,6 +9,7 @@ use std::io::Write;
 use crate::agg;
 use indicatif::ProgressBar;
 use rayon::prelude::*; 
+use bio::io::fasta::{Reader, Record};
 
 
 pub fn find_ref_edge(
@@ -389,7 +389,7 @@ fn collapse_identical_records(variants: Vec<Variant>) -> Vec<Variant> {
 
 }
 
-fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>,) -> String {
+fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>, reference_seq : &str) -> String {
     // Add AC (allele count) to INFO field
     let read_depth = coverage.get(&variant.pos).unwrap_or(&0);
     let allele_frequency = if *read_depth == 0{
@@ -397,7 +397,12 @@ fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>,) -> Str
     }else{
         variant.allele_count as f32 / *read_depth as f32
     };
-    let info = format!("RC={};DP={};AF={}", variant.allele_count, read_depth, allele_frequency);
+    let refpos = variant.pos;
+    let refstart = if refpos >=5 {refpos - 5 } else {0};
+    let refend = if refpos + 5 < reference_seq.len() {refpos + 5} else {reference_seq.len()};
+    let ref_seq = &reference_seq[refstart..refend];
+
+    let info = format!("RC={};DP={};AF={};RF={}", variant.allele_count, read_depth, allele_frequency, ref_seq);
     
     match variant.variant_type.as_str() {
         "SNP" => format!(
@@ -425,7 +430,7 @@ fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>,) -> Str
     }
 }
 
-fn write_vcf(variants: &[Variant], coverage: HashMap<usize, usize>,output_file: &str, minimal_ac: usize) -> std::io::Result<()> {
+fn write_vcf(variants: &[Variant], coverage: HashMap<usize, usize>,output_file: &str, minimal_ac: usize, reference:&str) -> std::io::Result<()> {
     let mut file = File::create(Path::new(output_file))?;
 
     // Write VCF header
@@ -435,6 +440,7 @@ fn write_vcf(variants: &[Variant], coverage: HashMap<usize, usize>,output_file: 
     writeln!(file, "##INFO=<ID=RC,Number=1,Type=Integer,Description=\"Read Count\">")?;
     writeln!(file, "##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Read Depth\">")?;
     writeln!(file, "##INFO=<ID=AF,Number=1,Type=Float,Description=\"Allele Frequency\">")?;
+    writeln!(file, "##INFO=<ID=RF,Number=1,Type=String,Description=\"Reference Sequences\">")?;
     writeln!(file, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">")?;
     writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")?;
 
@@ -462,7 +468,7 @@ fn write_vcf(variants: &[Variant], coverage: HashMap<usize, usize>,output_file: 
             continue
         }
         
-        writeln!(file, "{}", format_vcf_record(&variant, coverage.clone()))?;
+        writeln!(file, "{}", format_vcf_record(&variant, coverage.clone(), reference))?;
     }
 
     Ok(())
@@ -529,13 +535,20 @@ pub fn write_graph_from_graph(filename: &str, graph: &GraphicalGenome) -> std::i
     Ok(())
 }
 
-pub fn start (graph_file: &PathBuf, ref_strain: &str, k: usize, maxlength: usize, minimal_ac :usize, output_file: &str) {
+pub fn start (graph_file: &PathBuf, ref_strain: &str, k: usize, maxlength: usize, minimal_ac :usize, output_file: &str, reference_path:&PathBuf) {
     let mut graph = agg::GraphicalGenome::load_graph(graph_file).unwrap();
     // generate cigar
     let mut graph_with_cigar = generate_cigar(graph, ref_strain, k, maxlength, 2);
     let (Variants, coverage )= get_variant(&mut graph_with_cigar, k, ref_strain);
     let collapsed_var = collapse_identical_records (Variants);
-    let _ = write_vcf(&collapsed_var, coverage, output_file, minimal_ac);
+
+    // Read reference records into a vector
+    let ref_reader = Reader::from_file(reference_path).unwrap();
+    let reference_sequence: Vec<Record> = ref_reader.records().map(|r| r.unwrap()).collect();
+    let ref_seq = String::from_utf8_lossy(reference_sequence[0].seq()).to_string();
+    
+    // write vcf
+    let _ = write_vcf(&collapsed_var, coverage, output_file, minimal_ac, &ref_seq);
     let graph_output = graph_file.with_extension("annotated.gfa");
     let _ = write_graph_from_graph(graph_output.to_str().unwrap(), &graph_with_cigar);
 

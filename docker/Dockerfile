@@ -8,4 +8,5 @@ RUN git config --global http.sslverify false
 RUN git clone https://github.com/broadinstitute/mitograph.git \ 
     && cd mitograph \
     && cargo build --release
+    
 
