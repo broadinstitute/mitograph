@@ -1,6 +1,6 @@
 version 1.0
 
-workflow Evaluation {
+workflow EvaluationSNPS {
     input {
         File query_vcf
         File? query_vcf_index
@@ -11,15 +11,24 @@ workflow Evaluation {
         File base_vcf_index
         String vcf_score_field
     }
-    
+    call GetSNPS as Base_snp {
+        input:
+            query_vcf = base_vcf
+    }
+
+    call GetSNPS as Query_snp {
+        input:
+            query_vcf = query_vcf
+    }
+
     call VCFEval {
         input:
-            query_vcf = query_vcf,
+            query_vcf = Query_snp.vcf,
             reference_fa = reference_fa,
             reference_fai = reference_fai,
             query_output_sample_name = query_output_sample_name,
-            base_vcf = base_vcf,
-            base_vcf_index = base_vcf_index,
+            base_vcf = Base_snp.vcf,
+            base_vcf_index = Base_snp.tbi,
             vcf_score_field = vcf_score_field
     }
 
@@ -35,6 +44,45 @@ struct RuntimeAttributes {
     Int cpu
     Int memory
 }
+
+task GetSNPS {
+    input {
+        # Input VCF Files
+        File query_vcf
+        String prefix
+
+        # Runtime params
+        Int? preemptible
+        RuntimeAttributes runtimeAttributes = {"disk_size": ceil(2 * size(query_vcf, "GB")) + 50,
+                                                  "cpu": 1, "memory": 4}
+    }
+
+    command <<<
+        set -xeuo pipefail
+
+        # Compress and Index vcf files
+        bcftools view ~{query_vcf} -O z -o ~{query_vcf}.vcf.gz
+        bcftools index -t ~{query_vcf}.vcf.gz
+        # extract SNPs from vcf file
+        bcftools view -v snps ~{query_vcf}.vcf.gz -O z -o ~{prefix}.snps.vcf.gz
+        bcftools index -t ~{prefix}.snps.vcf.gz
+        
+    >>>
+
+    runtime {
+        docker: "us.gcr.io/broad-dsde-methods/vcfeval_docker:v1.1-tmp"
+        preemptible: select_first([preemptible, 0])
+        disks: "local-disk " + runtimeAttributes.disk_size + " HDD"
+        cpu: runtimeAttributes.cpu
+        memory: runtimeAttributes.memory + " GB"
+    }
+
+    output {
+        File vcf = "~{prefix}.snps.vcf.gz"
+        File tbi = "~{prefix}.snps.vcf.gz.tbi"
+    }
+}
+
 
 task VCFEval {
     input {
