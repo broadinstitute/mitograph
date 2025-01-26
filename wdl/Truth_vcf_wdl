@@ -1,0 +1,102 @@
+version 1.0
+
+workflow Truth_Vcf {
+    input {
+        File first_donor_vcf
+        File first_donor_tbi
+        File second_donor_vcf
+        File second_donor_tbi
+        String sampleid
+    }
+
+    call merge_vcf {
+        input:
+        first_donor_vcf = first_donor_vcf,
+        first_donor_tbi = first_donor_tbi,
+        second_donor_vcf = second_donor_vcf,
+        second_donor_tbi = second_donor_tbi,
+        prefix = sampleid,
+        threshold = 0.95
+    }   
+
+    output {
+        File truth_vcf = merge_vcf.truth_vcf
+        File truth_tbi = merge_vcf.truth_tbi
+    }
+
+}
+
+struct RuntimeAttr {
+    Float? mem_gb
+    Int? cpu_cores
+    Int? disk_gb
+    Int? boot_disk_gb
+    Int? preemptible_tries
+    Int? max_retries
+    String? docker
+}
+
+struct DataTypeParameters {
+    Int num_shards
+    String map_preset
+}
+
+task merge_vcf {
+
+    meta {
+        description : "merge two homoplasmic vcf as truth set"
+    }
+
+    input {
+        File first_donor_vcf
+        File first_donor_tbi
+        File second_donor_vcf
+        File second_donor_tbi
+        String prefix
+        Float threshold = 0.95
+
+        RuntimeAttr? runtime_attr_override
+    }
+
+    String query_info = "FORMAT/AF\\>${threshold}"
+
+    command <<<
+        set -euxo pipefail
+
+        bcftools view -i ~{query_info} ~{first_donor_vcf} -O z -o ~{prefix}.first.vcf.gz
+        bcftools index -t ~{prefix}.first.vcf.gz
+        bcftools view -i ~{query_info} ~{second_donor_vcf} -O z -o ~{prefix}.second.vcf.gz
+        bcftools index -t ~{prefix}.second.vcf.gz
+
+        bcftools merge ~{prefix}.first.vcf.gz ~{prefix}.second.vcf.gz -O z -o ~{prefix}.merged.vcf.gz
+        bcftools index -t ~{prefix}.merged.vcf.gz
+        
+
+    >>>
+
+    output {
+        File truth_vcf = "~{prefix}.merged.vcf.gz"
+        File truth_tbi = "~{prefix}.merged.vcf.gz.tbi"
+    }
+
+    #########################
+    RuntimeAttr default_attr = object {
+        cpu_cores:          1,
+        mem_gb:             10,
+        disk_gb:            10,
+        boot_disk_gb:       10,
+        preemptible_tries:  2,
+        max_retries:        1,
+        docker:             "broadinstitute/gatk:4.6.1.0"
+    }
+    RuntimeAttr runtime_attr = select_first([runtime_attr_override, default_attr])
+    runtime {
+        cpu:                    select_first([runtime_attr.cpu_cores,         default_attr.cpu_cores])
+        memory:                 select_first([runtime_attr.mem_gb,            default_attr.mem_gb]) + " GiB"
+        disks: "local-disk " +  select_first([runtime_attr.disk_gb,           default_attr.disk_gb]) + " HDD"
+        bootDiskSizeGb:         select_first([runtime_attr.boot_disk_gb,      default_attr.boot_disk_gb])
+        preemptible:            select_first([runtime_attr.preemptible_tries, default_attr.preemptible_tries])
+        maxRetries:             select_first([runtime_attr.max_retries,       default_attr.max_retries])
+        docker:                 select_first([runtime_attr.docker,            default_attr.docker])
+    }
+}
