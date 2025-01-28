@@ -18,12 +18,13 @@ workflow Evaluation {
             base_vcf = base_vcf,
             threshold = threshold,
             prefix = query_output_sample_name
+
     }
 
     call GetIndels as Base_indel {
         input:
-            query_vcf = AF_Filter.base_output_vcf,
-            query_tbi = AF_Filter.base_output_tbi,
+            query_vcf = base_vcf,
+            query_tbi = base_vcf_index,
             prefix = query_output_sample_name
     }
 
@@ -36,8 +37,8 @@ workflow Evaluation {
 
     call GetSNPS as Base_snp {
         input:
-            query_vcf = AF_Filter.base_output_vcf,
-            query_tbi = AF_Filter.base_output_tbi,
+            query_vcf = base_vcf,
+            query_tbi = base_vcf_index,
             prefix = query_output_sample_name
     }
 
@@ -92,6 +93,8 @@ task AF_Filter {
         File base_vcf
         Float threshold
         String prefix
+        String base_field
+        String query_field
 
         # Runtime params
         Int? preemptible
@@ -99,8 +102,8 @@ task AF_Filter {
                                                   "cpu": 1, "memory": 4}
     }
 
-    String query_info = "INFO/AF\\>${threshold}"
-    String base_info = "FORMAT/AF\\>${threshold}"
+    String query_info = "${base_field}\\>${threshold}"
+    String base_info = "${query_field}\\>${threshold}"
 
     command <<<
         set -xeuo pipefail
