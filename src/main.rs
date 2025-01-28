@@ -6,6 +6,7 @@ mod build;
 mod agg;
 mod call;
 mod filter;
+mod asm;
 
 #[derive(Debug, Parser)]
 #[clap(name = "mitograph")]
@@ -88,6 +89,22 @@ enum Commands {
         output_file: String,
 
     },
+
+    /// Extract Major Haplotype as Fasta file from Graph
+    #[clap(arg_required_else_help = true)]
+    Asm {
+        /// path for anchor graph.
+        #[clap(short, long, value_parser)]
+        graphfile: PathBuf,
+        /// path for output fasta file
+        #[clap(short, long, value_parser)]
+        outputfile: PathBuf,
+
+        /// header for the major haplotype, usually the sample name
+        #[clap(short, long, value_parser, required = true)]
+        header: String,
+
+    }
 }
 
 fn main() {
@@ -120,6 +137,14 @@ fn main() {
             output_file
         } => {
             call::start(&graphfile, &ref_strain, k, length_max, minimal_ac, &output_file);
+        }
+
+        Commands::Asm {
+            graphfile,
+            outputfile,
+            header
+        } => {
+            asm::start(&graphfile, &outputfile, &header);
         }
     }
 }
