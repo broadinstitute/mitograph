@@ -101,7 +101,7 @@ enum Commands {
         outputfile: PathBuf,
 
         /// header for the major haplotype, usually the sample name
-        #[clap(short, long, value_parser, required = true)]
+        #[clap(short, long, value_parser)]
         header: String,
 
     }
