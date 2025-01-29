@@ -102,7 +102,7 @@ enum Commands {
 
         /// header for the major haplotype, usually the sample name
         #[clap(short, long, value_parser)]
-        header: String,
+        sample: String,
 
     }
 }
@@ -142,9 +142,9 @@ fn main() {
         Commands::Asm {
             graphfile,
             outputfile,
-            header
+            sample
         } => {
-            asm::start(&graphfile, &outputfile, &header);
+            asm::start(&graphfile, &outputfile, &sample);
         }
     }
 }
