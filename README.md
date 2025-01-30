@@ -24,5 +24,5 @@ cargo build --release
 ./target/release/mito_graph call -g <output.gfa> -r <header of reference "NC_012920.1"> -k <kmer_size> --output-file <output.vcf>
 
 # extract major haplotype from graph
-./target/release/mitograph asm -g <output.gfa>  -o <output.majorhaplotpe.fasta> -h <header string, e.g. "HG002 major haplotype">
+./target/release/mitograph asm -g <output.gfa>  -o <output.majorhaplotpe.fasta> -s <header string, e.g. "HG002 major haplotype">
 ```
