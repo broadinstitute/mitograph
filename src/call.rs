@@ -397,29 +397,37 @@ fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>,) -> Str
     }else{
         variant.allele_count as f32 / *read_depth as f32
     };
-    let info = format!("RC={};DP={};AF={}", variant.allele_count, read_depth, allele_frequency);
-    
+    let info = format!("DP={}", read_depth);
+    let format:String = format!("GT:AD:HF");
+    let genotype:String = format!("./1");
+    let sample:String = format!("{}:{}:{}", genotype, variant.allele_count, allele_frequency);
     match variant.variant_type.as_str() {
         "SNP" => format!(
-            "chrM\t{}\t.\t{}\t{}\t.\t.\t{}",
+            "chrM\t{}\t.\t{}\t{}\t.\t.\t{}\t{}\t{}",
             variant.pos + 1,
             variant.ref_allele,
             variant.alt_allele,
-            info
+            info,
+            format,
+            sample
         ),
         "INS" => format!(
-            "chrM\t{}\t.\t{}\t{}\t.\t.\t{}",
+            "chrM\t{}\t.\t{}\t{}\t.\t.\t{}\t{}\t{}",
             variant.pos,
             variant.ref_allele,
             variant.alt_allele,
-            info
+            info,
+            format,
+            sample
         ),
         "DEL" => format!(
-            "chrM\t{}\t.\t{}\t{}\t.\t.\t{}",
+            "chrM\t{}\t.\t{}\t{}\t.\t.\t{}\t{}\t{}",
             variant.pos,
             variant.ref_allele,
             variant.alt_allele,
-            info
+            info,
+            format,
+            sample
         ),
         _ => panic!("Unknown variant type")
     }
@@ -432,12 +440,13 @@ fn write_vcf(variants: &[Variant], coverage: HashMap<usize, usize>,output_file: 
     writeln!(file, "##fileformat=VCFv4.2")?;
     writeln!(file, "##reference=chrM")?;
     writeln!(file, "##contig=<ID=chrM,length=16569>")?;
-    writeln!(file, "##INFO=<ID=RC,Number=1,Type=Integer,Description=\"Read Count\">")?;
     writeln!(file, "##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Read Depth\">")?;
-    writeln!(file, "##INFO=<ID=AF,Number=1,Type=Float,Description=\"Allele Frequency\">")?;
     writeln!(file, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">")?;
-    writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO")?;
-
+    writeln!(file, "##FORMAT=<ID=AD,Number=1,Type=Integer,Description=\"Allele Depth\">")?;
+    writeln!(file, "##FORMAT=<ID=HF,Number=1,Type=Float,Description=\"Heteroplasmic Frequency\">")?;
+    
+    writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE")?;
+    
     // Sort variants by position
     let mut sorted_variants = variants.to_vec();
     sorted_variants.sort_by(|a, b| {
