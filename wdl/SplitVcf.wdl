@@ -37,9 +37,10 @@ task SplitVcf {
 
     command <<<
         set -euxo pipefail
-
-        bcftools view -r ~{region} -s ~{sampleid} ~{joint_vcf} -O z -o ~{sampleid}.vcf.gz
-        bcftools view -e 'GT="0/0" || GT="0|0" || GT~"0/." || GT~"./0" || GT~".|0"' ~{sampleid}.vcf.gz -O z -o ~{sampleid}.splitted.vcf.gz 
+        bcftools view -r ~{region} -s ~{sampleid} ~{joint_vcf} --write-index -O z -o ~{sampleid}.vcf.gz
+        bcftools norm -m-any --do-not-normalize ~{sampleid}.vcf.gz \
+            --write-index -Oz -o ~{sampleid}.normed.vcf.gz
+        bcftools view -e 'GT="0/0" || GT="0|0" || GT~"0/." || GT~"./0" || GT~".|0" || GT~"0|."' ~{sampleid}.normed.vcf.gz -O z -o ~{sampleid}.splitted.vcf.gz 
         bcftools index -t ~{sampleid}.splitted.vcf.gz
 
     >>>
