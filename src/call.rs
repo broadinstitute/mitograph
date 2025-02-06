@@ -399,7 +399,7 @@ fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>,) -> Str
     };
     let info = format!("DP={}", read_depth);
     let format:String = format!("GT:AD:HF");
-    let genotype:String = format!("./1");
+    let genotype:String = format!("1");
     let sample:String = format!("{}:{}:{}", genotype, variant.allele_count, allele_frequency);
     match variant.variant_type.as_str() {
         "SNP" => format!(
@@ -433,7 +433,7 @@ fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>,) -> Str
     }
 }
 
-fn write_vcf(variants: &[Variant], coverage: HashMap<usize, usize>,output_file: &str, minimal_ac: usize) -> std::io::Result<()> {
+fn write_vcf(variants: &[Variant], coverage: HashMap<usize, usize>,output_file: &str, minimal_ac: usize, sample_id: &str) -> std::io::Result<()> {
     let mut file = File::create(Path::new(output_file))?;
 
     // Write VCF header
@@ -445,7 +445,7 @@ fn write_vcf(variants: &[Variant], coverage: HashMap<usize, usize>,output_file: 
     writeln!(file, "##FORMAT=<ID=AD,Number=1,Type=Integer,Description=\"Allele Depth\">")?;
     writeln!(file, "##FORMAT=<ID=HF,Number=1,Type=Float,Description=\"Heteroplasmic Frequency\">")?;
     
-    writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE")?;
+    writeln!(file, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}", sample_id)?;
     
     // Sort variants by position
     let mut sorted_variants = variants.to_vec();
@@ -538,13 +538,13 @@ pub fn write_graph_from_graph(filename: &str, graph: &GraphicalGenome) -> std::i
     Ok(())
 }
 
-pub fn start (graph_file: &PathBuf, ref_strain: &str, k: usize, maxlength: usize, minimal_ac :usize, output_file: &str) {
+pub fn start (graph_file: &PathBuf, ref_strain: &str, k: usize, maxlength: usize, minimal_ac :usize, output_file: &str, sample_id : &str) {
     let mut graph = agg::GraphicalGenome::load_graph(graph_file).unwrap();
     // generate cigar
     let mut graph_with_cigar = generate_cigar(graph, ref_strain, k, maxlength, 2);
     let (Variants, coverage )= get_variant(&mut graph_with_cigar, k, ref_strain);
     let collapsed_var = collapse_identical_records (Variants);
-    let _ = write_vcf(&collapsed_var, coverage, output_file, minimal_ac);
+    let _ = write_vcf(&collapsed_var, coverage, output_file, minimal_ac, sample_id);
     let graph_output = graph_file.with_extension("annotated.gfa");
     let _ = write_graph_from_graph(graph_output.to_str().unwrap(), &graph_with_cigar);
 
