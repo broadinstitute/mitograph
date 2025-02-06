@@ -110,7 +110,7 @@ task Call {
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_name} -k ~{kmer_size} -s sampleid -o ~{sampleid}.~{prefix}.vcf
+        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_name} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
 
     >>>
 
