@@ -88,6 +88,10 @@ enum Commands {
         #[clap(short, long, value_parser, required = true)]
         output_file: String,
 
+        /// sample name of the bam file
+        #[clap(short, long, value_parser, required = true)]
+        sample_id: String,
+
     },
 
     /// Extract Major Haplotype as Fasta file from Graph
@@ -134,9 +138,10 @@ fn main() {
             k,
             length_max,
             minimal_ac,
-            output_file
+            output_file,
+            sample_id
         } => {
-            call::start(&graphfile, &ref_strain, k, length_max, minimal_ac, &output_file);
+            call::start(&graphfile, &ref_strain, k, length_max, minimal_ac, &output_file, &sample_id);
         }
 
         Commands::Asm {
