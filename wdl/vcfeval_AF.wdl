@@ -102,8 +102,8 @@ task AF_Filter {
                                                   "cpu": 1, "memory": 4}
     }
 
-    String query_info = "${base_field}\\>${threshold}"
-    String base_info = "${query_field}\\>${threshold}"
+    String query_info = "${query_field}\\>${threshold}"
+    String base_info = "${base_field}\\>${threshold}"
 
     command <<<
         set -xeuo pipefail
