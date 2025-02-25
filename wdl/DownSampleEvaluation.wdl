@@ -2,19 +2,13 @@ version 1.0
 
 workflow MixSamples {
     input {
-        File first_donor_bam
-        File first_donor_bai
-        File second_donor_bam
-        File second_donor_bai
-        File first_donor_vcf
-        File first_donor_tbi
-        File second_donor_vcf
-        File second_donor_tbi
+        File wholegenome_bam
+        File wholegenome_bai
+        File truth_vcf
+        File truth_tbi
 
         File reference_fa
         File reference_fai
-        File reference_dict
-        Array[Float] first_proportion_list
         Int desiredCoverage
         Int kmer_size = 21
 
@@ -23,126 +17,74 @@ workflow MixSamples {
         String reference_header
         String vcf_score_field_mitograph
         String query_field_mitograph
-        String vcf_score_field_mutect2
-        String query_field_mutect2
+
 
     }
 
-    call CalculateCoverage as first_donor_coverage{
+    call CalculateCoverage {
         input:
-            bam = first_donor_bam,
-            bai = first_donor_bai,
-            locus = region,
-            prefix = sampleid
-    }
-    call CalculateCoverage as second_donor_coverage{
-        input:
-            bam = second_donor_bam,
-            bai = second_donor_bai,
+            bam = wholegenome_bam,
+            bai = wholegenome_bai,
             locus = region,
             prefix = sampleid
     }
 
-    call downsampleBam as first_donor_downsample {input:
-        input_bam = first_donor_bam,
-        input_bam_bai = first_donor_bai,
+    call downsampleBam {input:
+        input_bam = wholegenome_bam,
+        input_bam_bai = wholegenome_bai,
         basename = sampleid,
         desiredCoverage = desiredCoverage,
-        currentCoverage = first_donor_coverage.coverage,
-        preemptible_tries = 0
-    }
-    call downsampleBam as second_donor_downsample {input:
-        input_bam = second_donor_bam,
-        input_bam_bai = second_donor_bai,
-        basename = sampleid,
-        desiredCoverage = desiredCoverage,
-        currentCoverage = second_donor_coverage.coverage,
+        currentCoverage = CalculateCoverage.coverage,
         preemptible_tries = 0
     }
 
-    call merge_vcf {
+    call Filter {
         input:
-        first_donor_vcf = first_donor_vcf,
-        first_donor_tbi = first_donor_tbi,
-        second_donor_vcf = second_donor_vcf,
-        second_donor_tbi = second_donor_tbi,
-        prefix = sampleid,
+            bam = downsampleBam.downsampled_bam,
+            bai = downsampleBam.downsampled_bai,
+            prefix = sampleid
     }
 
-    scatter (first_proportion in first_proportion_list)  {
-        call mix_sample {
-            input:
-                first_donor_bam = first_donor_downsample.downsampled_bam,
-                first_donor_bai = first_donor_downsample.downsampled_bai,
-                second_donor_bam = second_donor_downsample.downsampled_bam,
-                second_donor_bai = second_donor_downsample.downsampled_bai,
-                first_proportion = first_proportion,
-                prefix = sampleid
-        }
-        call Mutect2 {
-            input:
-                bam = mix_sample.merged_bam,
-                bai = mix_sample.merged_bai,
-                reference_fasta = reference_fa,
-                reference_fasta_fai = reference_fai,
-                reference_fasta_dict = reference_dict,
-                prefix = sampleid,
-        }
-        call Filter {
-            input:
-                bam = mix_sample.merged_bam,
-                bai = mix_sample.merged_bai,
-                prefix = sampleid
-        }
-
-        call Build {
-            input:
-                bam = Filter.mt_bam,
-                reference = reference_fa,
-                prefix = sampleid,
-                kmer_size = kmer_size,
-                sampleid = sampleid
-        }
-
-        call Call {
-            input:
-                graph_gfa = Build.graph,
-                reference = reference_fa,
-                reference_name = reference_header,
-                prefix = sampleid,
-                kmer_size = kmer_size,
-                sampleid=sampleid
-        }
-
-        call VCFEval as Mitograph_Eval {
-            input:
-                query_vcf = Call.vcf,
-                reference_fa = reference_fa,
-                reference_fai = reference_fai,
-                query_output_sample_name = sampleid,
-                base_vcf = merge_vcf.truth_vcf,
-                base_vcf_index = merge_vcf.truth_tbi,
-                vcf_score_field = vcf_score_field_mitograph,
-                query_field = query_field_mitograph,
-                threshold = 0.95
-        }
-
-        call VCFEval as Mutect2_Eval {
-            input:
-                query_vcf = Mutect2.vcf,
-                reference_fa = reference_fa,
-                reference_fai = reference_fai,
-                query_output_sample_name = sampleid,
-                base_vcf = merge_vcf.truth_vcf,
-                base_vcf_index = merge_vcf.truth_tbi,
-                vcf_score_field = vcf_score_field_mutect2,
-                query_field = query_field_mutect2,
-                threshold = 0.95
-        }
+    call Build {
+        input:
+            bam = Filter.mt_bam,
+            reference = reference_fa,
+            prefix = sampleid,
+            kmer_size = kmer_size,
+            sampleid = sampleid
     }
+
+    call Call {
+        input:
+            graph_gfa = Build.graph,
+            reference = reference_fa,
+            reference_name = reference_header,
+            prefix = sampleid,
+            kmer_size = kmer_size,
+            sampleid=sampleid
+    }
+
+    call VCFEval as Mitograph_Eval {
+        input:
+            query_vcf = Call.vcf,
+            reference_fa = reference_fa,
+            reference_fai = reference_fai,
+            query_output_sample_name = sampleid,
+            base_vcf = truth_vcf,
+            base_vcf_index = truth_tbi,
+            vcf_score_field = vcf_score_field_mitograph,
+            query_field = query_field_mitograph,
+            threshold = 0.95
+    }
+
+    call CalculateVariantNumber{
+        input:
+            vcf = Call.vcf
+    }
+
     output {
-        Array[File] mitograph_summary_file = Mitograph_Eval.summary_statistics
-        Array[File] mutect2_summary_file = Mutect2_Eval.summary_statistics
+        File mitograph_summary_file = Mitograph_Eval.summary_statistics
+        Float mitograph_variantnumber = CalculateVariantNumber.count
     }
 }
 
@@ -265,83 +207,7 @@ task downsampleBam {
 }
 
 
-task mix_sample {
 
-    meta {
-        description : "sample reads to a specific proportion and mix the two bam"
-    }
-
-    parameter_meta {
-        first_donor_bam: {
-            description: "first donor bam to subset",
-            localization_optional: false
-        }
-        first_donor_bai:    "index for first donor bam file"
-        second_donor_bam: {
-            description: "second donor bam to subset",
-            localization_optional: false
-        }
-        second_donor_bai:    "index for second donor bam file"
-        first_proportion:  "proportion of reads to select in the first bam"
-        second_proportion: "proportion of reads to select in the second bam, should add up to 1"
-        prefix: "prefix for output bam and bai file names"
-        runtime_attr_override: "Override the default runtime attributes."
-    }
-
-    input {
-        File first_donor_bam
-        File first_donor_bai
-        File second_donor_bam
-        File second_donor_bai
-        Float first_proportion
-        Float second_proportion = 1 - first_proportion
-        String prefix
-
-        RuntimeAttr? runtime_attr_override
-    }
-
-
-    command <<<
-        set -euxo pipefail
-
-        samtools view -s ~{first_proportion} -b ~{first_donor_bam} -o ~{prefix}.first.bam
-
-        samtools view -s ~{second_proportion} -b ~{second_donor_bam} -o ~{prefix}.second.bam
-
-        samtools merge -f ~{prefix}.merged.bam ~{prefix}.first.bam ~{prefix}.second.bam
-
-        samtools sort -o ~{prefix}.merged.sorted.bam ~{prefix}.merged.bam
-        
-        samtools index ~{prefix}.merged.sorted.bam
-
-    >>>
-
-    output {
-        File merged_bam = "~{prefix}.merged.sorted.bam"
-        File merged_bai = "~{prefix}.merged.sorted.bam.bai"
-    }
-
-    #########################
-    RuntimeAttr default_attr = object {
-        cpu_cores:          1,
-        mem_gb:             10,
-        disk_gb:            10,
-        boot_disk_gb:       10,
-        preemptible_tries:  2,
-        max_retries:        1,
-        docker:             "us.gcr.io/broad-dsp-lrma/lr-utils:0.1.9"
-    }
-    RuntimeAttr runtime_attr = select_first([runtime_attr_override, default_attr])
-    runtime {
-        cpu:                    select_first([runtime_attr.cpu_cores,         default_attr.cpu_cores])
-        memory:                 select_first([runtime_attr.mem_gb,            default_attr.mem_gb]) + " GiB"
-        disks: "local-disk " +  select_first([runtime_attr.disk_gb,           default_attr.disk_gb]) + " HDD"
-        bootDiskSizeGb:         select_first([runtime_attr.boot_disk_gb,      default_attr.boot_disk_gb])
-        preemptible:            select_first([runtime_attr.preemptible_tries, default_attr.preemptible_tries])
-        maxRetries:             select_first([runtime_attr.max_retries,       default_attr.max_retries])
-        docker:                 select_first([runtime_attr.docker,            default_attr.docker])
-    }
-}
 task Filter {
     input {
         File bam
@@ -483,8 +349,8 @@ task VCFEval {
 
         mkdir output_dir
         cp reg/summary.txt output_dir/
-        cp reg/weighted_roc.tsv.gz output_dir/
-        cp reg/*.vcf.gz* output_dir/
+        # cp reg/weighted_roc.tsv.gz output_dir/
+        # cp reg/*.vcf.gz* output_dir/
         # cp output_dir/output.vcf.gz output_dir/~{query_output_sample_name}.vcf.gz
         # cp output_dir/output.vcf.gz.tbi output_dir/~{query_output_sample_name}.vcf.gz.tbi
 
@@ -501,9 +367,6 @@ task VCFEval {
 
     output {
         File summary_statistics = "output_dir/summary.txt"
-        File weighted_roc = "output_dir/weighted_roc.tsv.gz"
-        Array[File] combined_output = glob("output_dir/*.vcf.gz")
-        Array[File] combined_output_index = glob("output_dir/*.vcf.gz.tbi")
     }
 }
 
@@ -563,47 +426,42 @@ task merge_vcf {
     }
 }
 
-task Mutect2 {
+
+task CalculateVariantNumber {
 
     meta {
-        description : "Call Mitochondrial variants using mutect2"
+        description : "calculate variant number in a vcf file"
     }
 
+    parameter_meta {
+   }
+
     input {
-        File bam
-        File bai
-        File reference_fasta
-        File reference_fasta_fai
-        File reference_fasta_dict
-        String prefix
+        File vcf
 
         RuntimeAttr? runtime_attr_override
     }
 
-    Int disk_size = 4*ceil(size([bam, bai], "GB"))
 
     command <<<
         set -euxo pipefail
-        # samtools faidx ~{reference_fasta}
-        # gatk CreateSequenceDictionary -R ~{reference_fasta} -O ~{reference_fasta}.dict
-        gatk Mutect2 -R ~{reference_fasta} -L chrM --mitochondria-mode -I ~{bam} -O ~{prefix}.mutect2.vcf.gz
 
+        bcftools view -H ~{vcf} | wc -l > count.txt
     >>>
 
     output {
-        File vcf = "~{prefix}.mutect2.vcf.gz"
-        File tbi = "~{prefix}.mutect2.vcf.gz.tbi"
+        Float count = read_float("count.txt")
     }
 
     #########################
     RuntimeAttr default_attr = object {
         cpu_cores:          1,
         mem_gb:             10,
-        disk_gb:            disk_size,
+        disk_gb:            10,
         boot_disk_gb:       10,
         preemptible_tries:  2,
         max_retries:        1,
-        docker:             "broadinstitute/gatk:4.6.1.0"
+        docker:             "us.gcr.io/broad-dsp-lrma/lr-gcloud-samtools:0.1.20"
     }
     RuntimeAttr runtime_attr = select_first([runtime_attr_override, default_attr])
     runtime {
@@ -616,3 +474,4 @@ task Mutect2 {
         docker:                 select_first([runtime_attr.docker,            default_attr.docker])
     }
 }
+
