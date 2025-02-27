@@ -164,7 +164,7 @@ struct DataTypeParameters {
 task CalculateCoverage {
 
     meta {
-        description : "Subset a BAM file to a specified locus, and calculate coverage"
+        description : "Subset a BAM file to a specified locus."
     }
 
     parameter_meta {
@@ -182,31 +182,35 @@ task CalculateCoverage {
         File bam
         File bai
         String locus
-        String prefix
+        String prefix = "subset"
 
         RuntimeAttr? runtime_attr_override
     }
 
+
+
+    Int disk_size = 4*ceil(size([bam, bai], "GB"))
 
     command <<<
         set -euxo pipefail
 
         export GCS_OAUTH_TOKEN=$(gcloud auth application-default print-access-token)
 
-        samtools depth -r ~{locus} ~{bam} | awk '{sum+=$3} END {print sum/NR}' > coverage.txt
+        samtools view -bhX ~{bam} ~{bai} ~{locus} > ~{prefix}.bam
+        samtools index ~{prefix}.bam
+        samtools depth -r ~{locus} ~{prefix}.bam | awk '{sum+=$3} END {print sum/NR}' > coverage.txt
+
     >>>
 
     output {
         Float coverage = read_float("coverage.txt")
-        # File subset_bam = "~{prefix}.bam"
-        # File subset_bai = "~{prefix}.bam.bai"
     }
 
     #########################
     RuntimeAttr default_attr = object {
         cpu_cores:          1,
         mem_gb:             10,
-        disk_gb:            10,
+        disk_gb:            disk_size,
         boot_disk_gb:       10,
         preemptible_tries:  2,
         max_retries:        1,
@@ -223,6 +227,7 @@ task CalculateCoverage {
         docker:                 select_first([runtime_attr.docker,            default_attr.docker])
     }
 }
+
 
 task downsampleBam {
   input {
