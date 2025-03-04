@@ -43,22 +43,8 @@ workflow MixSamples {
             prefix = sampleid
     }
 
-    call downsampleBam as first_donor_downsample {input:
-        input_bam = first_donor_bam,
-        input_bam_bai = first_donor_bai,
-        basename = sampleid,
-        desiredCoverage = desiredCoverage,
-        currentCoverage = first_donor_coverage.coverage,
-        preemptible_tries = 0
-    }
-    call downsampleBam as second_donor_downsample {input:
-        input_bam = second_donor_bam,
-        input_bam_bai = second_donor_bai,
-        basename = sampleid,
-        desiredCoverage = desiredCoverage,
-        currentCoverage = second_donor_coverage.coverage,
-        preemptible_tries = 0
-    }
+
+
 
     call merge_vcf {
         input:
@@ -70,13 +56,25 @@ workflow MixSamples {
     }
 
     scatter (first_proportion in first_proportion_list)  {
+        call downsampleBam {input:
+            first_input_bam = first_donor_coverage.subsetbam,
+            first_input_bam_bai = first_donor_coverage.subsetbai,
+            second_input_bam = second_donor_coverage.subsetbam,
+            second_input_bam_bai = second_donor_coverage.subsetbai,
+            basename = sampleid,
+            desiredCoverage = desiredCoverage,
+            fraction = first_proportion,
+            currentCoverage1 = first_donor_coverage.coverage,
+            currentCoverage2 = second_donor_coverage.coverage,
+            preemptible_tries = 0
+        }
+
         call mix_sample {
             input:
-                first_donor_bam = first_donor_downsample.downsampled_bam,
-                first_donor_bai = first_donor_downsample.downsampled_bai,
-                second_donor_bam = second_donor_downsample.downsampled_bam,
-                second_donor_bai = second_donor_downsample.downsampled_bai,
-                first_proportion = first_proportion,
+                first_donor_bam = downsampleBam.downsampled_bam_1,
+                first_donor_bai = downsampleBam.downsampled_bai_1,
+                second_donor_bam = downsampleBam.downsampled_bam_2,
+                second_donor_bai = downsampleBam.downsampled_bam_2,
                 prefix = sampleid
         }
         call Mutect2 {
@@ -124,7 +122,8 @@ workflow MixSamples {
                 base_vcf_index = merge_vcf.truth_tbi,
                 vcf_score_field = vcf_score_field_mitograph,
                 query_field = query_field_mitograph,
-                threshold = 0.95
+                threshold = 0.01,
+                fraction = first_proportion
         }
 
         call VCFEval as Mutect2_Eval {
@@ -137,7 +136,8 @@ workflow MixSamples {
                 base_vcf_index = merge_vcf.truth_tbi,
                 vcf_score_field = vcf_score_field_mutect2,
                 query_field = query_field_mutect2,
-                threshold = 0.95
+                threshold = 0.01,
+                fraction = first_proportion
         }
     }
     output {
@@ -204,6 +204,8 @@ task CalculateCoverage {
 
     output {
         Float coverage = read_float("coverage.txt")
+        File subsetbam =  "~{prefix}.bam"
+        File subsetbai = " ~{prefix}.bam.bai"
     }
 
     #########################
@@ -231,13 +233,15 @@ task CalculateCoverage {
 
 task downsampleBam {
   input {
-    File input_bam
-    File input_bam_bai
+    File first_input_bam
+    File first_input_bam_bai
+    File second_input_bam
+    File second_input_bam_bai
     String basename
     Int desiredCoverage
-    Float currentCoverage
-    Float scalingFactor = desiredCoverage / currentCoverage
-
+    Float currentCoverage1
+    Float currentCoverage2
+    Float fraction
     Int? preemptible_tries
   }
 
@@ -245,14 +249,22 @@ task downsampleBam {
     description: "Uses Picard to downsample to desired coverage based on provided estimate of coverage."
   }
   parameter_meta {
-    basename: "Input is a string specifying the sample name which will be used to locate the file on gs."
-    downsampled_bam: "Output is a bam file downsampled to the specified mean coverage."
-    downsampled_bai: "Output is the index file for a bam file downsampled to the specified mean coverage."
-    desiredCoverage: "Input is an integer of the desired approximate coverage in the output bam file."
   }
+
+    Float second_fraction = 1 - fraction
+    Float total_desired_reads = desiredCoverage
+    Float first_desired_reads = total_desired_reads * fraction
+    Float second_desired_reads = total_desired_reads * second_fraction
+    
+    Float scalingFactor1 = first_desired_reads / currentCoverage1
+    Float scalingFactor2 = second_desired_reads / currentCoverage2
+
   command <<<
     set -eo pipefail
-    gatk DownsampleSam -I ~{input_bam} -O ~{basename}_~{desiredCoverage}x.bam -R 7 -P ~{scalingFactor} -S ConstantMemory --VALIDATION_STRINGENCY LENIENT --CREATE_INDEX true
+    echo scalingFactor1
+    echo scalingFactor2
+    gatk DownsampleSam -I ~{first_input_bam} -O ~{basename}_~{desiredCoverage}x_~{fraction}.bam -R 7 -P ~{scalingFactor1} -S ConstantMemory --VALIDATION_STRINGENCY LENIENT --CREATE_INDEX true
+    gatk DownsampleSam -I ~{second_input_bam} -O ~{basename}_~{desiredCoverage}x_~{second_fraction}.bam -R 7 -P ~{scalingFactor2} -S ConstantMemory --VALIDATION_STRINGENCY LENIENT --CREATE_INDEX true
 
 
   >>>
@@ -264,8 +276,10 @@ task downsampleBam {
     docker: "us.gcr.io/broad-gatk/gatk"
   }
   output {
-    File downsampled_bam = "~{basename}_~{desiredCoverage}x.bam"
-    File downsampled_bai = "~{basename}_~{desiredCoverage}x.bai"
+    File downsampled_bam_1 = "~{basename}_~{desiredCoverage}x_~{fraction}.bam"
+    File downsampled_bai_1 = "~{basename}_~{desiredCoverage}x_~{fraction}.bai"
+    File downsampled_bam_2 = "~{basename}_~{desiredCoverage}x_~{second_fraction}.bam"
+    File downsampled_bai_2 = "~{basename}_~{desiredCoverage}x_~{second_fraction}.bai"
   }
 }
 
@@ -287,8 +301,6 @@ task mix_sample {
             localization_optional: false
         }
         second_donor_bai:    "index for second donor bam file"
-        first_proportion:  "proportion of reads to select in the first bam"
-        second_proportion: "proportion of reads to select in the second bam, should add up to 1"
         prefix: "prefix for output bam and bai file names"
         runtime_attr_override: "Override the default runtime attributes."
     }
@@ -298,8 +310,6 @@ task mix_sample {
         File first_donor_bai
         File second_donor_bam
         File second_donor_bai
-        Float first_proportion
-        Float second_proportion = 1 - first_proportion
         String prefix
 
         RuntimeAttr? runtime_attr_override
@@ -309,11 +319,7 @@ task mix_sample {
     command <<<
         set -euxo pipefail
 
-        samtools view -s ~{first_proportion} -b ~{first_donor_bam} -o ~{prefix}.first.bam
-
-        samtools view -s ~{second_proportion} -b ~{second_donor_bam} -o ~{prefix}.second.bam
-
-        samtools merge -f ~{prefix}.merged.bam ~{prefix}.first.bam ~{prefix}.second.bam
+        samtools merge -f ~{prefix}.merged.bam ~{first_donor_bam} ~{second_donor_bam}
 
         samtools sort -o ~{prefix}.merged.sorted.bam ~{prefix}.merged.bam
         
@@ -448,6 +454,7 @@ task VCFEval {
         String vcf_score_field
         String query_field
         Float threshold
+        Float fraction
 
         # Runtime params
         Int? preemptible
@@ -487,9 +494,9 @@ task VCFEval {
             --vcf-score-field ~{vcf_score_field}
 
         mkdir output_dir
-        cp reg/summary.txt output_dir/
-        cp reg/weighted_roc.tsv.gz output_dir/
-        cp reg/*.vcf.gz* output_dir/
+        cp reg/summary.txt output_dir/~{query_output_sample_name}.~{fraction}.summary.txt
+        # cp reg/weighted_roc.tsv.gz output_dir/
+        # cp reg/*.vcf.gz* output_dir/
         # cp output_dir/output.vcf.gz output_dir/~{query_output_sample_name}.vcf.gz
         # cp output_dir/output.vcf.gz.tbi output_dir/~{query_output_sample_name}.vcf.gz.tbi
 
@@ -505,10 +512,10 @@ task VCFEval {
     }
 
     output {
-        File summary_statistics = "output_dir/summary.txt"
-        File weighted_roc = "output_dir/weighted_roc.tsv.gz"
-        Array[File] combined_output = glob("output_dir/*.vcf.gz")
-        Array[File] combined_output_index = glob("output_dir/*.vcf.gz.tbi")
+        File summary_statistics = "output_dir/~{query_output_sample_name}.~{fraction}.summary.txt"
+        # File weighted_roc = "output_dir/weighted_roc.tsv.gz"
+        # Array[File] combined_output = glob("output_dir/*.vcf.gz")
+        # Array[File] combined_output_index = glob("output_dir/*.vcf.gz.tbi")
     }
 }
 
