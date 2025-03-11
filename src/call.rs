@@ -2,7 +2,6 @@ use crate::agg;
 use agg::*;
 use bio::alignment::pairwise::*;
 use bio::alignment::AlignmentOperation;
-use bio::bio_types::genome::Length;
 use indicatif::ProgressBar;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -10,6 +9,11 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::{collections::HashSet, path::PathBuf};
+use std::i32;
+use ndarray::Array2;
+use std::error::Error;
+use csv::Writer;
+
 
 pub fn find_ref_edge(
     graph: &GraphicalGenome,
@@ -351,8 +355,9 @@ pub fn get_variant(
     graph: &mut GraphicalGenome,
     k: usize,
     ref_name: &str,
-) -> (Vec<Variant>, HashMap<usize, usize>) {
+) -> (Vec<Variant>, HashMap<usize, usize>, HashMap<String, Vec<serde_json::Value> > ) {
     let mut coverage = HashMap::new();
+    let mut read_record = HashMap::new();
     let mut var = Vec::new();
     let mut edgelist: Vec<_> = graph.edges.keys().collect();
     edgelist.sort();
@@ -415,13 +420,37 @@ pub fn get_variant(
             refstart as usize,
             allele_count,
         );
-        var.extend(variants);
+        var.extend(variants.clone());
 
         for (pos, count) in poscounts.iter() {
             *coverage.entry(*pos).or_insert(0) += count;
         }
+        let readlist = graph
+            .edges
+            .get(edge)
+            .and_then(|e| e.get("reads"))
+            .map_or(Vec::new(), |reads| {
+                reads.as_array().unwrap_or(&Vec::new()).to_vec()
+            });
+        for v in &variants{
+            if v.variant_type == "SNP"{
+                let key = format!("m.{}{}>{}",
+                v.pos + 1,
+                v.ref_allele, 
+                v.alt_allele);
+                read_record.entry(key).or_insert_with(Vec::new).extend(readlist.clone());
+            }else {
+                let key = format!("m.{}{}>{}",
+                v.pos,
+                v.ref_allele, 
+                v.alt_allele);
+                read_record.entry(key).or_insert_with(Vec::new).extend(readlist.clone());
+            }
+
+        }
+            
     }
-    (var, coverage)
+    (var, coverage, read_record)
 }
 
 fn collapse_identical_records(variants: Vec<Variant>) -> Vec<Variant> {
@@ -432,11 +461,11 @@ fn collapse_identical_records(variants: Vec<Variant>) -> Vec<Variant> {
     let mut collapsed = HashMap::new();
 
     for current_var in variants {
-        let mut pos = current_var.pos;
-        let mut ref_allele = current_var.ref_allele;
-        let mut alt_allele = current_var.alt_allele;
-        let mut variant_type = current_var.variant_type;
-        let mut allele_count = current_var.allele_count;
+        let pos = current_var.pos;
+        let ref_allele = current_var.ref_allele;
+        let alt_allele = current_var.alt_allele;
+        let variant_type = current_var.variant_type;
+        let allele_count = current_var.allele_count;
 
         let key = (
             pos,
@@ -468,10 +497,13 @@ fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>) -> Stri
     } else {
         variant.allele_count as f32 / *read_depth as f32
     };
+
     let info = format!("DP={}", read_depth);
     let format: String = format!("GT:AD:HF");
     let genotype: String = format!("1");
     let sample: String = format!("{}:{}:{}", genotype, variant.allele_count, allele_frequency);
+    
+    
     match variant.variant_type.as_str() {
         "SNP" => format!(
             "chrM\t{}\t.\t{}\t{}\t.\t.\t{}\t{}\t{}",
@@ -494,12 +526,50 @@ fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>) -> Stri
     }
 }
 
-fn write_vcf(
+fn filter_vcf_record(
     variants: &[Variant],
-    coverage: HashMap<usize, usize>,
-    output_file: &str,
+    coverage: &HashMap<usize, usize>,
     minimal_ac: usize,
     hf_threshold: f32,
+) -> Vec<Variant> {
+    let mut filtered_var = Vec::new();
+    for variant in variants{
+        let allele_count = variant.allele_count;
+        if allele_count < minimal_ac + 1 {
+            continue;
+        }
+        let read_depth = coverage.get(&variant.pos).unwrap_or(&0);
+        let hf = if *read_depth == 0 {
+            0.0
+        } else {
+            variant.allele_count as f32 / *read_depth as f32
+        };
+        if hf < hf_threshold as f32 {
+            continue;
+        }
+        // heuristic to exclude pacbio short indel errors
+        let length_difference: i32 = (variant.alt_allele.len() as i32 - variant.ref_allele.len() as i32).abs();
+        // hard threshold
+        if (length_difference > 0) && (length_difference < 2) {
+            if hf < 0.2 {
+                continue
+            }    
+        }
+        // remove reference Ns
+        let ref_allele = variant.ref_allele.as_str();
+        if ref_allele.contains("N") {
+            continue;
+        }
+        
+        filtered_var.push(variant.clone());
+    }
+    filtered_var
+}
+
+fn write_vcf(
+    variants: &[Variant],
+    coverage: &HashMap<usize, usize>,
+    output_file: &str,
     sample_id: &str,
 ) -> std::io::Result<()> {
     let mut file = File::create(Path::new(output_file))?;
@@ -546,23 +616,6 @@ fn write_vcf(
 
     // Write variant records
     for variant in sorted_variants {
-        let allele_count = variant.allele_count;
-        if allele_count < minimal_ac + 1 {
-            continue;
-        }
-        let read_depth = coverage.get(&variant.pos).unwrap_or(&0);
-        let hf = if *read_depth == 0 {
-            0.0
-        } else {
-            variant.allele_count as f32 / *read_depth as f32
-        };
-        if hf < hf_threshold as f32 {
-            continue;
-        }
-        let ref_allele = variant.ref_allele.as_str();
-        if ref_allele.contains("N") {
-            continue;
-        }
 
         writeln!(file, "{}", format_vcf_record(&variant, coverage.clone()))?;
     }
@@ -631,6 +684,117 @@ pub fn write_graph_from_graph(filename: &str, graph: &GraphicalGenome) -> std::i
     Ok(())
 }
 
+pub fn construct_matrix (read_record:&HashMap<String, Vec<serde_json::Value>>, variants:&[Variant]) -> (Array2<f64>, Vec<String>, Vec<String>) {
+    let mut read_set: HashSet<String> = HashSet::new();
+    for (_, readlist) in read_record {
+        for read in readlist {
+            if let Some(read_str) = read.as_str() {
+                read_set.insert(read_str.to_string());
+            }
+        }
+    }
+    let mut read_vec: Vec<String> = read_set.into_iter().collect();
+    read_vec.sort();
+
+    let read_set_dict: HashMap<String, usize> = read_vec
+        .iter()
+        .enumerate()
+        .map(|(i, read)| (read.clone(), i))
+        .collect();
+
+    let mut var_record: HashSet<String> = HashSet::new();
+    for v in variants {
+        let key = if v.variant_type == "SNP" {
+            format!("m.{}{}>{}",
+                v.pos + 1,
+                v.ref_allele, 
+                v.alt_allele)
+        } else {
+            format!("m.{}{}>{}",
+                v.pos,
+                v.ref_allele, 
+                v.alt_allele)
+        };
+        
+        var_record.insert(key);
+    }
+    let mut var_vec: Vec<String> = var_record.into_iter().collect();
+    var_vec.sort();
+
+    let var_record_dict: HashMap<String, usize> = var_vec
+        .iter()
+        .enumerate()
+        .map(|(i, var)| (var.clone(), i))
+        .collect();
+
+
+    // Create a 2D matrix filled with zeros
+    let mut matrix = Array2::<f64>::zeros((var_vec.len(), read_vec.len()));
+
+    for var in &var_vec {
+        let readlist: HashSet<String> = read_record.get(var)
+            .map(|reads| {
+                reads.iter()
+                    .filter_map(|read| read.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_else(|| HashSet::new());
+        
+        // Get row index for this variant
+        let r_index = *var_record_dict.get(var).unwrap();
+        
+        // For each read in the readlist
+        for read in readlist {
+            // Get column index for this read
+            if let Some(c_index) = read_set_dict.get(&read) {
+                // Increment the matrix cell
+                matrix[[r_index, *c_index]] += 1.0;
+            }
+        }
+    }
+    (matrix, var_vec, read_vec)
+
+
+}
+
+
+
+fn write_matrix_to_csv<P: AsRef<Path>>(
+    matrix: &Array2<f64>,
+    var_record: &[String],
+    read_set: &[String],
+    path: P
+) -> Result<(), Box<dyn Error>> {
+    // Create a file and CSV writer
+    let file = File::create(path)?;
+    let mut writer = Writer::from_writer(file);
+    
+    // Prepare header row (with empty cell for the corner)
+    let mut header = vec!["variant".to_string()];
+    header.extend(read_set.iter().cloned());
+    
+    // Write header
+    writer.write_record(&header)?;
+    
+    // Write each row with its row name
+    for (row_idx, var_name) in var_record.iter().enumerate() {
+        let mut row = vec![var_name.clone()];
+        
+        // Add the values from the matrix
+        for col_idx in 0..matrix.ncols() {
+            row.push(matrix[[row_idx, col_idx]].to_string());
+        }
+        
+        writer.write_record(&row)?;
+    }
+    
+    // Flush and finish
+    writer.flush()?;
+    Ok(())
+}
+
+
+
 pub fn start(
     graph_file: &PathBuf,
     ref_strain: &str,
@@ -644,16 +808,20 @@ pub fn start(
     let mut graph = agg::GraphicalGenome::load_graph(graph_file).unwrap();
     // generate cigar
     let mut graph_with_cigar = generate_cigar(graph, ref_strain, k, maxlength, 2);
-    let (Variants, coverage) = get_variant(&mut graph_with_cigar, k, ref_strain);
-    let collapsed_var = collapse_identical_records(Variants);
+    let (variants, coverage, read_record) = get_variant(&mut graph_with_cigar, k, ref_strain);
+    let collapsed_var = collapse_identical_records(variants);
+    let filtered_var = filter_vcf_record(&collapsed_var, &coverage, minimal_ac, hf_threshold);
     let _ = write_vcf(
-        &collapsed_var,
-        coverage,
+        &filtered_var,
+        &coverage,
         output_file,
-        minimal_ac,
-        hf_threshold,
         sample_id,
     );
     let graph_output = graph_file.with_extension("annotated.gfa");
     let _ = write_graph_from_graph(graph_output.to_str().unwrap(), &graph_with_cigar);
+
+    let (matrix, var_record, read_set) = construct_matrix(&read_record, &filtered_var);
+    let matrix_output = graph_file.with_extension("matrix.csv");
+    let _ = write_matrix_to_csv(&matrix, &var_record, &read_set, matrix_output);
 }
+
