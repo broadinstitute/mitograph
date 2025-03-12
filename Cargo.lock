@@ -839,6 +839,7 @@ version = "0.1.0"
 dependencies = [
  "bio",
  "clap",
+ "csv",
  "flate2",
  "indicatif",
  "ndarray 0.15.6",

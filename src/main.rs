@@ -2,11 +2,11 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-mod build;
 mod agg;
+mod asm;
+mod build;
 mod call;
 mod filter;
-mod asm;
 
 #[derive(Debug, Parser)]
 #[clap(name = "mitograph")]
@@ -18,7 +18,6 @@ struct Cli {
 }
 
 const DEFAULT_KMER_SIZE: usize = 21;
-
 
 #[derive(Debug, Subcommand)]
 
@@ -79,11 +78,16 @@ enum Commands {
         k: usize,
         /// max Length to do alignment
         #[clap(short, long, value_parser, default_value_t = 3000)]
-        length_max: usize, 
+        length_max: usize,
 
         /// minimal allele count for variants
         #[clap(short, long, value_parser, default_value_t = 1)]
         minimal_ac: usize,
+
+        /// minimal heteroplasmic frequency for variants
+        #[clap(short, long, value_parser, default_value_t = 0.01)]
+        vaf_threshold: f32,
+
         /// output file name
         #[clap(short, long, value_parser, required = true)]
         output_file: String,
@@ -91,7 +95,6 @@ enum Commands {
         /// sample name of the bam file
         #[clap(short, long, value_parser, required = true)]
         sample_id: String,
-
     },
 
     /// Extract Major Haplotype as Fasta file from Graph
@@ -107,8 +110,7 @@ enum Commands {
         /// header for the major haplotype, usually the sample name
         #[clap(short, long, value_parser)]
         sample: String,
-
-    }
+    },
 }
 
 fn main() {
@@ -139,15 +141,25 @@ fn main() {
             length_max,
             minimal_ac,
             output_file,
-            sample_id
+            sample_id,
+            vaf_threshold,
         } => {
-            call::start(&graphfile, &ref_strain, k, length_max, minimal_ac, &output_file, &sample_id);
+            call::start(
+                &graphfile,
+                &ref_strain,
+                k,
+                length_max,
+                minimal_ac,
+                &output_file,
+                &sample_id,
+                vaf_threshold,
+            );
         }
 
         Commands::Asm {
             graphfile,
             outputfile,
-            sample
+            sample,
         } => {
             asm::start(&graphfile, &outputfile, &sample);
         }
