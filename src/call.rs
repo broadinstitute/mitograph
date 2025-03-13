@@ -526,6 +526,7 @@ fn format_vcf_record(variant: &Variant, coverage: HashMap<usize, usize>) -> Stri
     }
 }
 
+// To do: add more sofiscated model to filter vcf
 fn filter_vcf_record(
     variants: &[Variant],
     coverage: &HashMap<usize, usize>,
@@ -540,6 +541,7 @@ fn filter_vcf_record(
         }
         let read_depth = coverage.get(&variant.pos).unwrap_or(&0);
         let hf = if *read_depth == 0 {
+             println!("{:?}", variant);
             0.0
         } else {
             variant.allele_count as f32 / *read_depth as f32
