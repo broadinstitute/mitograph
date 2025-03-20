@@ -4,15 +4,17 @@ use bio::alignment::pairwise::*;
 use bio::alignment::AlignmentOperation;
 use indicatif::ProgressBar;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap};
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::{collections::HashSet, path::PathBuf};
-use std::i32;
-use ndarray::Array2;
 use std::error::Error;
 use csv::Writer;
+use ndarray::{Array1, Array2, Axis, s};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+use statrs::distribution::{Normal, ContinuousCDF};
 
 
 pub fn find_ref_edge(
@@ -547,14 +549,7 @@ fn filter_vcf_record(
         if hf < hf_threshold as f32 {
             continue;
         }
-        // heuristic to exclude pacbio short indel errors
-        let length_difference: i32 = (variant.alt_allele.len() as i32 - variant.ref_allele.len() as i32).abs();
-        // hard threshold
-        if (length_difference > 0) && (length_difference < 2) {
-            if hf < 0.2 {
-                continue
-            }    
-        }
+
         // remove reference Ns
         let ref_allele = variant.ref_allele.as_str();
         if ref_allele.contains("N") {
@@ -793,7 +788,210 @@ fn write_matrix_to_csv<P: AsRef<Path>>(
     Ok(())
 }
 
+fn jaccard_distance(vector1: &[bool], vector2: &[bool]) -> f64 {
+    assert_eq!(vector1.len(), vector2.len(), "Vectors must have the same length");
+    
+    let mut intersection_count = 0;
+    let mut union_count = 0;
+    
+    for (a, b) in vector1.iter().zip(vector2.iter()) {
+        if *a && *b {
+            intersection_count += 1;
+        }
+        if *a || *b {
+            union_count += 1;
+        }
+    }
+    
+    if union_count == 0 {
+        return 0.0; // Both vectors are all zeros
+    }
+    
+    1.0 - (intersection_count as f64 / union_count as f64)
+}
 
+/// Generate a null distribution through permutation testing
+fn get_null_distribution(
+    records: &Vec<String>,
+    i: usize,
+    matrix: &Array2<f64>, 
+    permutation_round: usize
+) -> Vec<f64> {
+    let mut statistics = Vec::new();
+    let mut rng = thread_rng();
+    
+    for _ in 0..permutation_round {
+        let index = &records[i];
+        for (i, index) in records.iter().enumerate() {
+            let vector = matrix.slice(s![i, ..]);
+            
+            // Skip vectors with frequency > 0.5
+            let frequency = vector.sum() / vector.len() as f64;
+            if frequency > 0.5 {
+                continue;
+            }
+        
+            // Create a shuffled copy of the vector
+            let vector_data: Vec<f64> = vector.iter().copied().collect();
+            let mut shuffled_data = vector_data.clone();
+            shuffled_data.shuffle(&mut rng);
+            let shuffled = Array1::from(shuffled_data);
+
+            let mut all_coefficients = Vec::new();
+            
+            for (j, other_index) in records.iter().enumerate() {
+                if index == other_index {
+                    continue;
+                }
+
+                let other_vector = matrix.slice(s![j, ..]);
+                
+                let binary_vector: Vec<bool> = shuffled.iter().map(|&x| x > 0.0).collect();
+                let binary_other: Vec<bool> = other_vector.iter().map(|&x| x > 0.0).collect();
+
+                // Calculate Jaccard distance
+                let coor = (1.0 - jaccard_distance(&binary_vector, &binary_other)).abs();
+                all_coefficients.push(coor);
+            }
+           
+            statistics.push(all_coefficients.iter().sum());
+        }
+    }
+    
+    statistics
+}
+
+/// Calculate statistics for observed data
+fn calculate_observation_statistics(
+    recordlist: &Vec<String>,
+    index: usize,
+    matrix: &Array2<f64>, 
+) -> f64 {
+
+    let vector = &matrix.slice(s![index, ..]);
+    let mut all_coefficients = Vec::new();
+    
+    for (i, other_index) in recordlist.iter().enumerate() {
+        if i == index {
+            continue;
+        }
+        
+        let other_vector =&matrix.slice(s![i, ..]);
+        // // Skip vectors with frequency < 0.5, compare with true variants
+        // let frequency = other_vector.sum() / other_vector.len() as f64;
+        // if frequency < 0.5 {
+        //     continue;
+        // }
+        
+        // Convert arrays to binary vectors before calculating Jaccard distance
+        let binary_vector: Vec<bool> = vector.iter().map(|&x| x > 0.0).collect();
+        let binary_other: Vec<bool> = other_vector.iter().map(|&x| x > 0.0).collect();
+
+        // Calculate Jaccard distance
+        let coor = (1.0 - jaccard_distance(&binary_vector, &binary_other)).abs();
+        all_coefficients.push(coor);
+    }
+    
+    all_coefficients.iter().sum()
+}
+
+/// Calculate p-value using z-score approach
+fn calculate_p_value(statistics: &[f64], observation: f64) -> f64 {
+    let n = statistics.len() as f64;
+    
+    // Calculate mean
+    let mu = statistics.iter().sum::<f64>() / n;
+    
+    // Calculate standard deviation
+    let variance = statistics.iter()
+        .map(|&x| (x - mu).powi(2))
+        .sum::<f64>() / n;
+    let sigma = variance.sqrt();
+    // println!("{:?}, {}", statistics, observation);
+    
+    let z_score = (observation - mu) / sigma;
+    
+    // Calculate p-value using normal distribution CDF
+    let normal = Normal::new(0.0, 1.0).unwrap();
+    1.0 - normal.cdf(z_score)
+}
+
+fn permutation_test(
+    matrix: &Array2<f64>,
+    records: Vec<String>,
+    threshold: f64,
+    permutation_round: usize,
+    filtered_var: &Vec<Variant>
+) -> (Vec<Variant>, Array2<f64>, Vec<String>) {
+
+    let bar = ProgressBar::new(records.len() as u64);
+
+    // Replace par_iter().enumerate() with this pattern
+    let indices: Vec<_> = (0..records.len()).into_par_iter().map(|i| {
+        bar.inc(1);
+        let index = &records[i];
+        let row = matrix.slice(s![i, ..]);
+        let frequency = row.sum() / row.len() as f64;
+        if frequency > 0.2 {
+            return Ok(i)
+        }
+        
+        let statistics = get_null_distribution(&records, i, &matrix, permutation_round);
+        let observation = calculate_observation_statistics(&records, i, &matrix);
+        
+        let p_value = calculate_p_value(&statistics, observation);
+        // println!("{}", p_value);
+        if p_value > threshold {
+            Err(index.clone())
+            
+        }else{
+            Ok(i)
+        }
+        
+ 
+    }).collect::<Vec<_>>(); 
+
+    let mut excluded_index = Vec::new();
+    let mut index_list = Vec::new();
+    
+    for result in indices {
+        match result {
+            Ok(i) => index_list.push(i),
+            Err(excluded) => excluded_index.push(excluded),
+        }
+    }
+
+    println!("{:?}", excluded_index);
+    bar.finish();
+    // filter variants
+    let mut f_variant: Vec<Variant> = Vec::new();
+    let mut var_list: Vec<String> = Vec::new();
+
+    for v in filtered_var {
+        let key = if v.variant_type == "SNP" {
+            format!("m.{}{}>{}",
+                v.pos + 1,
+                v.ref_allele, 
+                v.alt_allele)
+        } else {
+            format!("m.{}{}>{}",
+                v.pos,
+                v.ref_allele, 
+                v.alt_allele)
+        };
+        if excluded_index.contains(&key) {
+            continue;
+        }
+        f_variant.push(v.clone());
+        var_list.push(key.clone());
+    }
+    // filter matrix
+    let filtered_matrix = matrix.select(Axis(0), &index_list);
+    // println!("{}, {}, {:?}", f_variant.len(), index_list.len(), filtered_matrix.dim());
+    
+    (f_variant, filtered_matrix, var_list)
+    
+}
 
 pub fn start(
     graph_file: &PathBuf,
@@ -811,17 +1009,34 @@ pub fn start(
     let (variants, coverage, read_record) = get_variant(&mut graph_with_cigar, k, ref_strain);
     let collapsed_var = collapse_identical_records(variants);
     let filtered_var = filter_vcf_record(&collapsed_var, &coverage, minimal_ac, hf_threshold);
+    // modified, exclude filtered data for FPs
+
+    let graph_output = graph_file.with_extension("annotated.gfa");
+    let _ = write_graph_from_graph(graph_output.to_str().unwrap(), &graph_with_cigar);
+    
+    // modified, exclude filtered data
+    let (matrix, var_record, read_set) = construct_matrix(&read_record, &filtered_var);
+    
+    // write original vcf
     let _ = write_vcf(
         &filtered_var,
+        &coverage,
+         &format!("origin_{}", output_file),
+        sample_id,
+    );
+
+    // use matrix information to filter vcf
+    let (permu_fultered_var, filtered_matrix, filtered_var) = permutation_test(&matrix, var_record, 0.001, 10, &filtered_var );
+
+    // write filtered vcf
+    let _ = write_vcf(
+        &permu_fultered_var,
         &coverage,
         output_file,
         sample_id,
     );
-    let graph_output = graph_file.with_extension("annotated.gfa");
-    let _ = write_graph_from_graph(graph_output.to_str().unwrap(), &graph_with_cigar);
-
-    let (matrix, var_record, read_set) = construct_matrix(&read_record, &filtered_var);
+    // write matrix
     let matrix_output = graph_file.with_extension("matrix.csv");
-    let _ = write_matrix_to_csv(&matrix, &var_record, &read_set, matrix_output);
+    let _ = write_matrix_to_csv(&filtered_matrix, &filtered_var, &read_set, matrix_output);
 }
 
