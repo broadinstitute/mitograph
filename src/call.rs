@@ -15,6 +15,7 @@ use ndarray::{Array1, Array2, Axis, s};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use statrs::distribution::{Normal, ContinuousCDF};
+use regex::Regex;
 
 
 pub fn find_ref_edge(
@@ -813,21 +814,23 @@ fn jaccard_distance(vector1: &[bool], vector2: &[bool]) -> f64 {
 /// Generate a null distribution through permutation testing
 fn get_null_distribution(
     records: &Vec<String>,
-    i: usize,
     matrix: &Array2<f64>, 
-    permutation_round: usize
+    permutation_round: usize,
+    threshold: f64
 ) -> Vec<f64> {
-    let mut statistics = Vec::new();
-    let mut rng = thread_rng();
-    
-    for _ in 0..permutation_round {
-        let index = &records[i];
+
+    let bar = ProgressBar::new(permutation_round as u64);
+    let summary_statistics = (0..permutation_round).into_par_iter().flat_map(|_|  {
+        bar.inc(1);
+        let mut local_stats = Vec::new();
+        let mut rng = thread_rng();
+
         for (i, index) in records.iter().enumerate() {
             let vector = matrix.slice(s![i, ..]);
             
-            // Skip vectors with frequency > 0.5
+            // Skip vectors with frequency > threshold
             let frequency = vector.sum() / vector.len() as f64;
-            if frequency > 0.5 {
+            if frequency > threshold {
                 continue;
             }
         
@@ -846,19 +849,21 @@ fn get_null_distribution(
 
                 let other_vector = matrix.slice(s![j, ..]);
                 
-                let binary_vector: Vec<bool> = shuffled.iter().map(|&x| x > 0.0).collect();
-                let binary_other: Vec<bool> = other_vector.iter().map(|&x| x > 0.0).collect();
+                let binary_vector: Vec<bool> = shuffled.iter().map(|&x| x > 0.5).collect();
+                let binary_other: Vec<bool> = other_vector.iter().map(|&x| x > 0.5).collect();
 
                 // Calculate Jaccard distance
                 let coor = (1.0 - jaccard_distance(&binary_vector, &binary_other)).abs();
                 all_coefficients.push(coor);
             }
            
-            statistics.push(all_coefficients.iter().sum());
+            local_stats.push(all_coefficients.iter().sum());
         }
-    }
+        local_stats
+    }).collect::<Vec<f64>>();
+    bar.finish();
+    summary_statistics
     
-    statistics
 }
 
 /// Calculate statistics for observed data
@@ -877,15 +882,10 @@ fn calculate_observation_statistics(
         }
         
         let other_vector =&matrix.slice(s![i, ..]);
-        // // Skip vectors with frequency < 0.5, compare with true variants
-        // let frequency = other_vector.sum() / other_vector.len() as f64;
-        // if frequency < 0.5 {
-        //     continue;
-        // }
         
         // Convert arrays to binary vectors before calculating Jaccard distance
-        let binary_vector: Vec<bool> = vector.iter().map(|&x| x > 0.0).collect();
-        let binary_other: Vec<bool> = other_vector.iter().map(|&x| x > 0.0).collect();
+        let binary_vector: Vec<bool> = vector.iter().map(|&x| x > 0.5).collect();
+        let binary_other: Vec<bool> = other_vector.iter().map(|&x| x > 0.5).collect();
 
         // Calculate Jaccard distance
         let coor = (1.0 - jaccard_distance(&binary_vector, &binary_other)).abs();
@@ -919,29 +919,38 @@ fn calculate_p_value(statistics: &[f64], observation: f64) -> f64 {
 fn permutation_test(
     matrix: &Array2<f64>,
     records: Vec<String>,
-    threshold: f64,
+    p_value_threshold: f64,
     permutation_round: usize,
-    filtered_var: &Vec<Variant>
+    filtered_var: &Vec<Variant>,
+    frequency_threshold:f64
 ) -> (Vec<Variant>, Array2<f64>, Vec<String>) {
 
+    let re = Regex::new(r"m\.(\d+)([A-Za-z-]+)>([A-Za-z-]+)").unwrap();
     let bar = ProgressBar::new(records.len() as u64);
-
+    let statistics = get_null_distribution(&records, &matrix, permutation_round, frequency_threshold);
     // Replace par_iter().enumerate() with this pattern
-    let indices: Vec<_> = (0..records.len()).into_par_iter().map(|i| {
+    let indices: Vec<_> = (0..filtered_var.len()).into_par_iter().map(|i| {
         bar.inc(1);
         let index = &records[i];
         let row = matrix.slice(s![i, ..]);
         let frequency = row.sum() / row.len() as f64;
-        if frequency > 0.2 {
+        if frequency > frequency_threshold {
             return Ok(i)
         }
-        
-        let statistics = get_null_distribution(&records, i, &matrix, permutation_round);
+        if let Some(caps) = re.captures(index) {
+            let pos = caps.get(1).unwrap().as_str().parse::<usize>().unwrap();
+            let ref_allele = caps.get(2).unwrap().as_str();
+            let alt_allele = caps.get(3).unwrap().as_str();
+            if ref_allele.len() == alt_allele.len() {
+                return Ok(i)
+            }
+        }
+
         let observation = calculate_observation_statistics(&records, i, &matrix);
         
         let p_value = calculate_p_value(&statistics, observation);
         // println!("{}", p_value);
-        if p_value > threshold {
+        if p_value > p_value_threshold {
             Err(index.clone())
             
         }else{
@@ -966,7 +975,9 @@ fn permutation_test(
     // filter variants
     let mut f_variant: Vec<Variant> = Vec::new();
     let mut var_list: Vec<String> = Vec::new();
-
+    for idx in &index_list {
+        var_list.push(records[*idx].clone())
+    }
     for v in filtered_var {
         let key = if v.variant_type == "SNP" {
             format!("m.{}{}>{}",
@@ -983,7 +994,6 @@ fn permutation_test(
             continue;
         }
         f_variant.push(v.clone());
-        var_list.push(key.clone());
     }
     // filter matrix
     let filtered_matrix = matrix.select(Axis(0), &index_list);
@@ -1003,7 +1013,7 @@ pub fn start(
     sample_id: &str,
     hf_threshold: f32,
 ) {
-    let mut graph = agg::GraphicalGenome::load_graph(graph_file).unwrap();
+    let graph = agg::GraphicalGenome::load_graph(graph_file).unwrap();
     // generate cigar
     let mut graph_with_cigar = generate_cigar(graph, ref_strain, k, maxlength, 2);
     let (variants, coverage, read_record) = get_variant(&mut graph_with_cigar, k, ref_strain);
@@ -1017,6 +1027,10 @@ pub fn start(
     // modified, exclude filtered data
     let (matrix, var_record, read_set) = construct_matrix(&read_record, &filtered_var);
     
+    // write original matrix
+    let original_matrix_output = graph_file.with_extension("original.matrix.csv");
+    let _ = write_matrix_to_csv(&matrix, &var_record, &read_set, original_matrix_output);
+
     // write original vcf
     let _ = write_vcf(
         &filtered_var,
@@ -1026,17 +1040,17 @@ pub fn start(
     );
 
     // use matrix information to filter vcf
-    let (permu_fultered_var, filtered_matrix, filtered_var) = permutation_test(&matrix, var_record, 0.001, 10, &filtered_var );
+    let (permu_filtered_var, filtered_matrix, filtered_name) = permutation_test(&matrix, var_record, 0.0001, 10, &filtered_var, 0.2 );
 
     // write filtered vcf
     let _ = write_vcf(
-        &permu_fultered_var,
+        &permu_filtered_var,
         &coverage,
         output_file,
         sample_id,
     );
     // write matrix
     let matrix_output = graph_file.with_extension("matrix.csv");
-    let _ = write_matrix_to_csv(&filtered_matrix, &filtered_var, &read_set, matrix_output);
+    let _ = write_matrix_to_csv(&filtered_matrix, &filtered_name, &read_set, matrix_output);
 }
 

@@ -845,6 +845,7 @@ dependencies = [
  "ndarray 0.15.6",
  "rand",
  "rayon",
+ "regex",
  "rust-htslib",
  "serde",
  "serde_json",
