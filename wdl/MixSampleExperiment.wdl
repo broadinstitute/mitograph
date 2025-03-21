@@ -371,7 +371,7 @@ task Filter {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v2"
+        docker: "hangsuunc/mitograph:v3"
         memory: "1 GB"
         cpu: 1
         disks: "local-disk 100 SSD"
@@ -399,7 +399,7 @@ task Build {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v2"
+        docker: "hangsuunc/mitograph:v3"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"
@@ -429,7 +429,7 @@ task Call {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v2"
+        docker: "hangsuunc/mitograph:v3"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"

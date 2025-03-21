@@ -62,7 +62,7 @@ task Filter {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v1"
+        docker: "hangsuunc/mitograph:v3"
         memory: "1 GB"
         cpu: 1
         disks: "local-disk 100 SSD"
@@ -90,7 +90,7 @@ task Build {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v1"
+        docker: "hangsuunc/mitograph:v3"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"
@@ -110,7 +110,7 @@ task Call {
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_name} -k ~{kmer_size} -o ~{sampleid}.~{prefix}.vcf
+        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_name} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
 
     >>>
 
@@ -120,7 +120,7 @@ task Call {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v1"
+        docker: "hangsuunc/mitograph:v3"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"
