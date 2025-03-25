@@ -16,6 +16,7 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use statrs::distribution::{Normal, ContinuousCDF};
 use regex::Regex;
+use adjustp::{adjust, Procedure};
 
 
 pub fn find_ref_edge(
@@ -929,55 +930,67 @@ fn permutation_test(
     let bar = ProgressBar::new(records.len() as u64);
     let statistics = get_null_distribution(&records, &matrix, permutation_round, frequency_threshold);
     // Replace par_iter().enumerate() with this pattern
-    let indices: Vec<_> = (0..filtered_var.len()).into_par_iter().map(|i| {
+    let (indices, collected_values): (Vec<_>, Vec<_>) = (0..filtered_var.len()).into_par_iter().map(|i| {
         bar.inc(1);
         let index = &records[i];
         let row = matrix.slice(s![i, ..]);
         let frequency = row.sum() / row.len() as f64;
         if frequency > frequency_threshold {
-            return Ok(i)
+            return (Ok(i), None);
         }
         if let Some(caps) = re.captures(index) {
             let pos = caps.get(1).unwrap().as_str().parse::<usize>().unwrap();
             let ref_allele = caps.get(2).unwrap().as_str();
             let alt_allele = caps.get(3).unwrap().as_str();
             if ref_allele.len() == alt_allele.len() {
-                return Ok(i)
+                return (Ok(i), None);
             }
         }
 
         let observation = calculate_observation_statistics(&records, i, &matrix);
-        
         let p_value = calculate_p_value(&statistics, observation);
-        // println!("{}", p_value);
-        if p_value > p_value_threshold {
-            Err(index.clone())
-            
-        }else{
-            Ok(i)
-        }
-        
- 
-    }).collect::<Vec<_>>(); 
+        (Err(index.clone()), Some((p_value, index.clone())))
 
+ 
+    }).unzip(); 
+
+    let mut raw_p_values = Vec::new();
+    let mut test_index = Vec::new();
+
+    for item in collected_values.into_iter().flatten() {
+        let (p_value, index) = item;
+        raw_p_values.push(p_value);
+        test_index.push(index);
+    }
+
+    // adjust pvalues, create excluded_index list
     let mut excluded_index = Vec::new();
-    let mut index_list = Vec::new();
-    
-    for result in indices {
-        match result {
-            Ok(i) => index_list.push(i),
-            Err(excluded) => excluded_index.push(excluded),
+    let qvalues = adjust(&raw_p_values, Procedure::BenjaminiHochberg);
+    for (qi, q_value) in qvalues.iter().enumerate(){
+        let test_index_value = &test_index[qi];
+        if q_value > &p_value_threshold{
+            excluded_index.push(test_index_value);
         }
     }
 
     println!("{:?}", excluded_index);
     bar.finish();
+
+
     // filter variants
+    let mut index_list = Vec::new();
     let mut f_variant: Vec<Variant> = Vec::new();
     let mut var_list: Vec<String> = Vec::new();
-    for idx in &index_list {
-        var_list.push(records[*idx].clone())
+    // get index list and var_list
+    for (r, rindex) in records.iter().enumerate(){
+        if !excluded_index.contains(&rindex){
+            index_list.push(r);
+            var_list.push(rindex.clone());
+        }
     }
+    // for idx in &index_list {
+    //     var_list.push(records[*idx].clone())
+    // }
     for v in filtered_var {
         let key = if v.variant_type == "SNP" {
             format!("m.{}{}>{}",
@@ -990,7 +1003,7 @@ fn permutation_test(
                 v.ref_allele, 
                 v.alt_allele)
         };
-        if excluded_index.contains(&key) {
+        if excluded_index.contains(&&key) {
             continue;
         }
         f_variant.push(v.clone());
@@ -1027,17 +1040,17 @@ pub fn start(
     // modified, exclude filtered data
     let (matrix, var_record, read_set) = construct_matrix(&read_record, &filtered_var);
     
-    // write original matrix
-    let original_matrix_output = graph_file.with_extension("original.matrix.csv");
-    let _ = write_matrix_to_csv(&matrix, &var_record, &read_set, original_matrix_output);
+    // // write original matrix
+    // let original_matrix_output = graph_file.with_extension("original.matrix.csv");
+    // let _ = write_matrix_to_csv(&matrix, &var_record, &read_set, original_matrix_output);
 
-    // write original vcf
-    let _ = write_vcf(
-        &filtered_var,
-        &coverage,
-         &format!("origin_{}", output_file),
-        sample_id,
-    );
+    // // write original vcf
+    // let _ = write_vcf(
+    //     &filtered_var,
+    //     &coverage,
+    //      &format!("origin_{}", output_file),
+    //     sample_id,
+    // );
 
     // use matrix information to filter vcf
     let (permu_filtered_var, filtered_matrix, filtered_name) = permutation_test(&matrix, var_record, 0.0001, 100, &filtered_var, 0.2 );
