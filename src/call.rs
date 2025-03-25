@@ -1053,7 +1053,7 @@ pub fn start(
     // );
 
     // use matrix information to filter vcf
-    let (permu_filtered_var, filtered_matrix, filtered_name) = permutation_test(&matrix, var_record, 0.0001, 100, &filtered_var, 0.2 );
+    let (permu_filtered_var, filtered_matrix, filtered_name) = permutation_test(&matrix, var_record, 0.001, 100, &filtered_var, 0.2 );
 
     // write filtered vcf
     let _ = write_vcf(
