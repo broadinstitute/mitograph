@@ -3,6 +3,15 @@
 version = 3
 
 [[package]]
+name = "adjustp"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0e02cfdd4ee28c4fff044e993a514fd3856b5e1b561a3e882338bcdc55966df"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -837,6 +846,7 @@ dependencies = [
 name = "mitograph"
 version = "0.1.0"
 dependencies = [
+ "adjustp",
  "bio",
  "clap",
  "csv",
