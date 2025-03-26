@@ -23,8 +23,8 @@ workflow Evaluation {
 
     call GetIndels as Base_indel {
         input:
-            query_vcf = base_vcf,
-            query_tbi = base_vcf_index,
+            query_vcf = AF_Filter.base_output_vcf,
+            query_tbi = AF_Filter.base_output_tbi,
             prefix = query_output_sample_name
     }
 
@@ -37,8 +37,8 @@ workflow Evaluation {
 
     call GetSNPS as Base_snp {
         input:
-            query_vcf = base_vcf,
-            query_tbi = base_vcf_index,
+            query_vcf = AF_Filter.base_output_vcf,
+            query_tbi = AF_Filter.base_output_tbi,
             prefix = query_output_sample_name
     }
 
@@ -47,6 +47,18 @@ workflow Evaluation {
             query_vcf = AF_Filter.query_output_vcf,
             query_tbi = AF_Filter.query_output_tbi,
             prefix = query_output_sample_name
+    }
+
+    call VCFEval as AllEval {
+        input:
+            query_vcf = AF_Filter.query_output_vcf,
+            reference_fa = reference_fa,
+            reference_fai = reference_fai,
+            query_output_sample_name = query_output_sample_name,
+            base_vcf = AF_Filter.base_output_vcf,
+            base_vcf_index = AF_Filter.base_output_tbi,
+            vcf_score_field = vcf_score_field,
+            prefix = "all"
     }
 
     call VCFEval as SNPEval {
@@ -74,6 +86,7 @@ workflow Evaluation {
     }
 
     output {
+        File summary_all = AllEval.summary_statistics
         File summary_snp = SNPEval.summary_statistics
         File summary_indel = IndelEval.summary_statistics
     }
@@ -266,8 +279,8 @@ task VCFEval {
 
         mkdir output_dir
         cp reg/summary.txt output_dir/~{query_output_sample_name}.~{prefix}.summary.txt
-        cp reg/weighted_roc.tsv.gz output_dir/
-        cp reg/*.vcf.gz* output_dir/
+        # cp reg/weighted_roc.tsv.gz output_dir/
+        # cp reg/*.vcf.gz* output_dir/
         # cp output_dir/output.vcf.gz output_dir/~{query_output_sample_name}.vcf.gz
         # cp output_dir/output.vcf.gz.tbi output_dir/~{query_output_sample_name}.vcf.gz.tbi
 
@@ -284,8 +297,8 @@ task VCFEval {
 
     output {
         File summary_statistics = "output_dir/~{query_output_sample_name}.~{prefix}.summary.txt"
-        File weighted_roc = "output_dir/weighted_roc.tsv.gz"
-        Array[File] combined_output = glob("output_dir/*.vcf.gz")
-        Array[File] combined_output_index = glob("output_dir/*.vcf.gz.tbi")
+        # File weighted_roc = "output_dir/weighted_roc.tsv.gz"
+        # Array[File] combined_output = glob("output_dir/*.vcf.gz")
+        # Array[File] combined_output_index = glob("output_dir/*.vcf.gz.tbi")
     }
 }
