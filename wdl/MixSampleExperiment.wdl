@@ -52,6 +52,7 @@ workflow MixSamples {
         first_donor_tbi = first_donor_tbi,
         second_donor_vcf = second_donor_vcf,
         second_donor_tbi = second_donor_tbi,
+        reference_fa = reference_fa,
         prefix = sampleid,
     }
 
@@ -530,6 +531,7 @@ task merge_vcf {
         File first_donor_tbi
         File second_donor_vcf
         File second_donor_tbi
+        File reference_fa
         String prefix
         
 
@@ -540,9 +542,22 @@ task merge_vcf {
     command <<<
         set -euxo pipefail
 
+        bcftools norm \
+                -f ~{reference_fa} \
+                -m -both ~{first_donor_vcf} \
+                -O z \
+                -o first.normed.vcf.gz 
+        bcftools index -t first.normed.vcf.gz
 
+        bcftools norm \
+                -f ~{reference_fa} \
+                -m -both ~{second_donor_vcf} \
+                -O z \
+                -o second.normed.vcf.gz 
+        bcftools index -t second.normed.vcf.gz
 
-        bcftools merge ~{first_donor_vcf} ~{second_donor_vcf} -O z -o ~{prefix}.merged.vcf.gz
+        # bcftools merge ~{first_donor_vcf} ~{second_donor_vcf} -O z -o ~{prefix}.merged.vcf.gz
+        bcftools isec -C first.normed.vcf.gz second.normed.vcf.gz -w1 -O z -o ~{prefix}.merged.vcf.gz
         bcftools index -t ~{prefix}.merged.vcf.gz
         
 
