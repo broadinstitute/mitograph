@@ -123,7 +123,7 @@ workflow MixSamples {
                 base_vcf_index = merge_vcf.truth_tbi,
                 vcf_score_field = vcf_score_field_mitograph,
                 query_field = query_field_mitograph,
-                threshold = 0.01,
+                threshold = first_proportion,
                 fraction = first_proportion
         }
 
@@ -137,7 +137,7 @@ workflow MixSamples {
                 base_vcf_index = merge_vcf.truth_tbi,
                 vcf_score_field = vcf_score_field_mutect2,
                 query_field = query_field_mutect2,
-                threshold = 0.01,
+                threshold = first_proportion,
                 fraction = first_proportion
         }
     }
@@ -462,7 +462,9 @@ task VCFEval {
         RuntimeAttributes runtimeAttributes = {"disk_size": ceil(2 * size(query_vcf, "GB") + 2 * size(base_vcf, "GB") + size(reference_fa, "GB")) + 50,
                                                   "cpu": 8, "memory": 16}
     }
-    String query_info = "${query_field}\\>${threshold}"
+    Float threshold1 = threshold + 0.01
+    String query_info = "${query_field}\\<${threshold1}" # extract heteroplasmic variants
+    
 
     command <<<
         set -xeuo pipefail
