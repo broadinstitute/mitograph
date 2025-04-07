@@ -1,5 +1,5 @@
 use crate::agg::*;
-use std::{collections::HashSet, path::PathBuf, fs::File, io::{self, Write}};
+use std::{path::PathBuf, fs::File, io::{self, Write}};
 
 pub fn find_most_supported_edge(graph: &GraphicalGenome, src: String) -> String {
     let empty_vec = Vec::new();
@@ -7,6 +7,10 @@ pub fn find_most_supported_edge(graph: &GraphicalGenome, src: String) -> String 
     let mut m = 0;
     let mut most_supported_edge = "".to_string();
     for edge in outgoinglist.iter(){
+        let edge_dst = graph.edges[edge]["dst"].as_array().unwrap().first().unwrap().as_str().unwrap().to_string();
+        if edge_dst == "SINK".to_string(){
+            continue
+        }
         let read_count = graph.edges[edge]["reads"].as_array().unwrap_or(&Vec::new()).len();
         if read_count > m {
             m = read_count;
@@ -28,6 +32,9 @@ pub fn construct_major_haplotype(graph:GraphicalGenome) -> String {
 
     while dst > src {
         next_edge = find_most_supported_edge(&graph, src.clone().to_string());
+        if next_edge == "".to_string(){
+            break
+        }
         let anchor_seq = graph.anchor.get(&src)
             .and_then(|v| v.get("seq"))
             .and_then(|v| v.as_str())
@@ -48,6 +55,10 @@ pub fn construct_major_haplotype(graph:GraphicalGenome) -> String {
         // println!("{}, {}, {}", src, dst, next_edge);
     }
 
+    next_edge = find_most_supported_edge(&graph, src.clone().to_string());
+    if next_edge == "".to_string(){
+        return haplotype
+    }
     let anchor_seq = graph.anchor.get(&src)
         .and_then(|v| v.get("seq"))
         .and_then(|v| v.as_str())
