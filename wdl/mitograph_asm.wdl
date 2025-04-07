@@ -1,10 +1,9 @@
 version 1.0
-workflow CompareFasta {
+workflow mitograph_asm {
     input {
         File whole_read_bam
         File whole_read_bai
         File reference_fa
-        File reference_gb
         String prefix
         String sampleid
         Int kmer_size
