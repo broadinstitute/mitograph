@@ -1,6 +1,6 @@
 # mitograph
 
-Building Mitochondrial anchor-based graphical genome from long reads. Call very low frequent heteroplasmies from graph.
+Building Mitochondrial anchor-based graphical genome from long reads. Assemble major haplotypes, call homoplasmic and heteroplasmic variants, analyze methylation signals
 
 ## Usage
 ### install rust
