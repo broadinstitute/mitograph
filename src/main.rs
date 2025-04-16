@@ -7,6 +7,7 @@ mod asm;
 mod build;
 mod call;
 mod filter;
+mod methyl;
 
 #[derive(Debug, Parser)]
 #[clap(name = "mitograph")]
@@ -62,7 +63,7 @@ enum Commands {
         read_path: PathBuf,
     },
 
-    ///Call Variants from Anchor Graph
+    ///Call Variants from Sequence Graph
     #[clap(arg_required_else_help = true)]
     Call {
         /// path for anchor graph.
@@ -111,6 +112,20 @@ enum Commands {
         #[clap(short, long, value_parser)]
         sample: String,
     },
+
+    /// Annotate Methylation signals to the Graph
+    #[clap(arg_required_else_help = true)]
+    Methyl {
+        /// path for cigar annotated anchor graph.
+        #[clap(short, long, value_parser)]
+        graphfile: PathBuf,
+        /// path for bam file with MM/ML tags.
+        #[clap(short, long, value_parser)]
+        bamfile: PathBuf,
+        /// path for output methylation bed file
+        #[clap(short, long, value_parser)]
+        outputfile: PathBuf,
+    }
 }
 
 fn main() {
@@ -162,6 +177,14 @@ fn main() {
             sample,
         } => {
             asm::start(&graphfile, &outputfile, &sample);
+        }
+
+        Commands::Methyl {
+            graphfile,
+            bamfile,
+            outputfile,
+        } => {
+            methyl::start(&graphfile, &bamfile, &outputfile);
         }
     }
 }

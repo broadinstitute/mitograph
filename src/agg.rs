@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::{path::PathBuf};
+use std::io::Write;
 
 
 #[derive(Debug)]
@@ -310,3 +311,63 @@ pub fn reconstruct_path_seq(graph: &GraphicalGenome, path: &[String]) -> String 
     seq
 }
 
+pub fn write_graph_from_graph(filename: &str, graph: &GraphicalGenome) -> std::io::Result<()> {
+    let mut file = File::create(filename)?;
+
+    writeln!(file, "H\tVN:Z:1.0")?;
+
+    let mut keys: Vec<_> = graph.anchor.keys().collect();
+    keys.sort();
+    for anchor in keys.iter() {
+        let data = &graph.anchor[*anchor];
+        let seq = data["seq"].as_str().unwrap_or_default();
+        let mut data_clone = data.clone();
+        data_clone.as_object_mut().unwrap().remove("seq");
+        let json_string = serde_json::to_string(&data_clone).unwrap_or_else(|_| "{}".to_string());
+        writeln!(file, "S\t{}\t{}\tPG:J:{}", anchor, seq, json_string)?;
+    }
+    let mut edge_output = Vec::new();
+    let mut link_output = Vec::new();
+
+    let mut edge_keys: Vec<_> = graph.edges.keys().collect();
+    edge_keys.sort();
+    for edge in edge_keys.iter() {
+        let edge_data = &graph.edges[*edge];
+        let seq = edge_data["seq"].as_str().unwrap_or_default();
+        let src = graph.incoming[*edge][0].clone();
+        let dst = graph.outgoing[*edge][0].clone();
+        let mut edge_data_clone = edge_data.clone();
+        edge_data_clone.as_object_mut().unwrap().remove("seq");
+        let json_string =
+            serde_json::to_string(&edge_data_clone).unwrap_or_else(|_| "{}".to_string());
+        let formatted_string = if edge_data
+            .get("reads")
+            .and_then(|r| r.as_array())
+            .map_or(false, |arr| !arr.is_empty())
+        {
+            format!(
+                "S\t{}\t{}\tPG:J:{}\tRC:i:{}",
+                edge,
+                seq,
+                json_string,
+                edge_data
+                    .get("reads")
+                    .and_then(|r| r.as_array())
+                    .map_or(0, |arr| arr.len())
+            )
+        } else {
+            format!("S\t{}\t{}", edge, seq)
+        };
+        edge_output.push(formatted_string);
+
+        link_output.push(format!("L\t{}\t+\t{}\t+\t0M", src, edge));
+        link_output.push(format!("L\t{}\t+\t{}\t+\t0M", edge, dst));
+    }
+    for s in edge_output {
+        writeln!(file, "{}", s)?;
+    }
+    for l in link_output {
+        writeln!(file, "{}", l)?;
+    }
+    Ok(())
+}
