@@ -3,7 +3,7 @@ use rust_htslib::bam::{Read, Reader, Record};
 use std::path::Path;
 use std::{path::PathBuf, fs::File, io::{self, Write}};
 use crate::{agg::*, methyl};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use serde_json::{json, Value};
 
 pub fn find_path_on_graph(graph: &GraphicalGenome, read_name: &str) -> Vec<String> {
@@ -414,11 +414,162 @@ pub fn add_methylation_to_graph(
         }
     }
 }
-pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf) {
+
+fn find_methylation_signal_on_major_haplotype(graph: &GraphicalGenome) -> HashMap<(usize, Option<usize>), HashMap<String, f64>> {
+    let mut methyl: HashMap<(usize, Option<usize>), HashMap<String, f64>> = HashMap::new();
+    let major_haplotype = construct_major_haplotype_entitylist(&graph);
+    let major_haplotype_sequence = construct_major_haplotype(&graph);
+    let mut startpos = 0;
+    
+    let mut anchor_keys: Vec<_> = graph.anchor.keys().cloned().collect();
+    anchor_keys.sort();
+    
+    let firstanchor = &anchor_keys[0];
+    let anchorseq = graph.anchor[firstanchor]["seq"].as_str().unwrap();
+    let k = anchorseq.len();
+    
+    for item in major_haplotype {
+        let (methyl_info_list, seq, reference_position_mapping) = if item.starts_with("A") {
+            // Anchor case
+            let methyl_info = match graph.anchor[&item].get("methyl") {
+                Some(m) => m.as_object().unwrap_or(&serde_json::Map::new()).clone(),
+                None => serde_json::Map::new()
+            };
+            
+            let seq = graph.anchor[&item]["seq"].as_str().unwrap().to_string();
+            let cigar = format!("{}=", k);
+            let ref_start = graph.anchor[&item]["pos"].as_u64().unwrap() as usize;
+            let reference_mapping = get_reference_coordinates(&cigar, ref_start);
+            
+            (methyl_info, seq, reference_mapping)
+        } else if item.starts_with("E") {
+            // Edge case
+            let methyl_info = match graph.edges[&item].get("methyl") {
+                Some(m) => m.as_object().unwrap_or(&serde_json::Map::new()).clone(),
+                None => serde_json::Map::new()
+            };
+            
+            let seq = graph.edges[&item]["seq"].as_str().unwrap().to_string();
+            let cigar = match graph.edges[&item].get("variants") {
+                Some(v) => v.as_str().unwrap_or("").to_string(),
+                None => "".to_string()
+            };
+            
+            let src = graph.incoming[&item][0].as_str();
+            let ref_start = if src == "SOURCE" {
+                0
+            } else {
+                graph.anchor[src]["pos"].as_u64().unwrap() as usize + k
+            };
+            
+            let reference_mapping = if cigar.is_empty() {
+                HashMap::new()
+            } else {
+                get_reference_coordinates(&cigar, ref_start)
+            };
+            
+            (methyl_info, seq, reference_mapping)
+        } else {
+            // Other case
+            (serde_json::Map::new(), "".to_string(), HashMap::new())
+        };
+        
+        if methyl_info_list.is_empty() {
+            startpos += seq.len();
+            continue;
+        }
+        
+        for (read, info_list) in methyl_info_list {
+            let info_array = info_list.as_array().unwrap();
+            for info in info_array {
+                let pos = info[0].as_u64().unwrap() as usize;
+                let likelihood = info[1].as_f64().unwrap();
+                
+                let currentpos = startpos + pos;
+                let referencepos = reference_position_mapping.get(&pos).cloned();
+                
+                if currentpos >= major_haplotype_sequence.len() || 
+                   major_haplotype_sequence.chars().nth(currentpos).unwrap() != 'C' {
+                    continue;
+                }
+                
+                if currentpos + 1 >= major_haplotype_sequence.len() || 
+                   major_haplotype_sequence.chars().nth(currentpos + 1).unwrap() != 'G' {
+                    continue;
+                }
+                
+                methyl.entry((currentpos, referencepos)).or_insert_with(HashMap::new)
+                     .insert(read.clone(), likelihood);
+            }
+        }
+        
+        startpos += seq.len();
+    }
+    
+    methyl
+}
+
+fn write_bed(
+    methyl: HashMap<(usize, Option<usize>), HashMap<String, f64>>,
+    output_file: &PathBuf,
+    min_prob: f64
+) -> std::io::Result<()> {
+    let mut file = File::create(Path::new(output_file))?;
+
+    // Write BED header
+    writeln!(file, "##fileformat=BED")?;
+    writeln!(file, "##haplotype=majorhaplotype")?;
+    writeln!(
+        file,
+        "#CHROM\tRef_start\tRef_end\tAsm_start\tAsm_end\tMod_rate\tUnmod_rate\tCov\tMod_count\tUnmod_count"
+    )?;
+    // let min_prob = 0.5;
+    // let mut methylation_signal: HashMap<(usize, Option<usize>), (f64, f64)> = HashMap::new();
+    let mut methyl_info = Vec::new();
+    for ((pos, refpos), d) in methyl.iter() {
+        let mut methyl_count = 0;
+        let mut unmethyl_count = 0;
+        let total_count = d.len();
+        
+        for (_, &likelihood) in d.iter() {
+            if likelihood > min_prob {
+                methyl_count += 1;
+            } else if likelihood < 1.0 - min_prob {
+                unmethyl_count += 1;
+            }
+        }
+    
+        let methyl_rate = methyl_count as f64 / total_count as f64;
+        let unmethyl_rate = unmethyl_count as f64 / total_count as f64;
+        // 1-based coordinates
+        let ref_pos_start = refpos.unwrap() + 1;
+        let ref_pos_end = refpos.unwrap() + 2;
+        let asm_pos_start = pos + 1;
+        let asm_pos_end = pos + 2;
+        methyl_info.push((ref_pos_start, ref_pos_end, asm_pos_start, asm_pos_end, methyl_rate,unmethyl_rate,total_count, methyl_count, unmethyl_count));
+
+    }
+    methyl_info.sort_by_key(|item| item.0);
+    for methyl_list in methyl_info.iter(){
+        let (ref_pos_start, ref_pos_end, asm_pos_start, asm_pos_end, methyl_rate,unmethyl_rate,total_count, methyl_count, unmethyl_count) = methyl_list;
+        writeln!(file, 
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "ChrM", ref_pos_start, ref_pos_end, asm_pos_start, asm_pos_end, methyl_rate,unmethyl_rate,total_count,methyl_count, unmethyl_count,
+            )?;
+
+    }
+
+
+    Ok(())
+}
+
+pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf, min_prob: f64) {
     println!("Add Methylation Signals!");
+    // annotate graph
     let mut graph = GraphicalGenome::load_graph(graph_file).unwrap();
     println!("Processing BAM file");
     let mut bam = Reader::from_path(bam_file).unwrap();
+    let mut read_name_set = HashSet::new();
     for record in bam.records(){
         let r = record.expect("Failed to read BAM record");
         let mut read_sequence = String::from_utf8_lossy(&r.seq().as_bytes()).to_string();
@@ -426,12 +577,16 @@ pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf) {
             read_sequence = reverse_complement(&read_sequence);
         }
         let read_name = String::from_utf8_lossy(&r.qname()).to_string();
+        if read_name_set.contains(&read_name) {
+            continue
+        }
+        read_name_set.insert(read_name.clone());
         let read_position_mapping = find_mapping_position(&graph, &read_name, &read_sequence);
-        // validation
-        // validation(&graph, &read_position_mapping, &read_sequence);
         // Validate read_position_mapping
+        // validation(&graph, &read_position_mapping, &read_sequence);
+        
         let methyl_pos_dict = get_methylation_read(&r, 'm');
-        println!("{}, {:?}, {}", &read_name, methyl_pos_dict.len(), r.is_reverse());
+        // println!("{}, {:?}, {}", &read_name, methyl_pos_dict.len(), r.is_reverse());
 
         if read_position_mapping.len() == 0 {
             continue
@@ -444,5 +599,11 @@ pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf) {
     let graph_output = graph_file.with_extension("methyl.gfa");
     let _ = write_graph_from_graph(graph_output.to_str().unwrap(), &graph);
     
+
+    // extract major haplotype path and then construct a matrix
+    let methyl_dict =  find_methylation_signal_on_major_haplotype(&graph);
+    let _ = write_bed(methyl_dict, output_file, min_prob);
+    // println!("{:?}", methyl_dict);
+
 
 }

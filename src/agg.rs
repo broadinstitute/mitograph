@@ -371,3 +371,122 @@ pub fn write_graph_from_graph(filename: &str, graph: &GraphicalGenome) -> std::i
     }
     Ok(())
 }
+
+pub fn find_most_supported_edge(graph: &GraphicalGenome, src: String) -> String {
+    let empty_vec = Vec::new();
+    let outgoinglist = &graph.outgoing.get(&src).unwrap_or(&empty_vec);
+    let mut m = 0;
+    let mut most_supported_edge = "".to_string();
+    for edge in outgoinglist.iter(){
+        let edge_dst = graph.edges[edge]["dst"].as_array().unwrap().first().unwrap().as_str().unwrap().to_string();
+        if edge_dst == "SINK".to_string(){
+            continue
+        }
+        let read_count = graph.edges[edge]["reads"].as_array().unwrap_or(&Vec::new()).len();
+        if read_count > m {
+            m = read_count;
+            most_supported_edge = edge.clone();
+        }
+    }
+    most_supported_edge
+
+}
+
+pub fn construct_major_haplotype(graph:&GraphicalGenome) -> String {
+    let mut anchorlist: Vec<_> = graph.anchor.keys().collect();
+    anchorlist.sort();
+    let mut src = anchorlist.first().unwrap().to_string();
+    let mut next_edge = "".to_string();
+    let mut dst = anchorlist.last().unwrap().to_string();
+    let mut haplotype = String::new();
+    // println!("{}", src);
+    let mut entity_set = HashSet::new();
+
+    while dst > src {
+        next_edge = find_most_supported_edge(&graph, src.clone().to_string());
+        if next_edge == "".to_string(){
+            break
+        }
+        if entity_set.contains(&src) {
+            break
+        }
+        entity_set.insert(src.clone());
+        let anchor_seq = graph.anchor.get(&src)
+            .and_then(|v| v.get("seq"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(""); 
+        let edge_seq = graph.edges.get(&next_edge)
+            .and_then(|v| v.get("seq"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");       
+        haplotype.push_str(anchor_seq);
+        haplotype.push_str(edge_seq);
+        src = graph.edges[&next_edge]["dst"].as_array()
+            .unwrap()
+            .first()
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();        
+        // println!("{}, {}, {}", src, dst, next_edge);
+    }
+
+    next_edge = find_most_supported_edge(&graph, src.clone().to_string());
+    if next_edge == "".to_string(){
+        return haplotype
+    }
+    let anchor_seq = graph.anchor.get(&src)
+        .and_then(|v| v.get("seq"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(""); 
+    let edge_seq = graph.edges.get(&next_edge)
+        .and_then(|v| v.get("seq"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    haplotype.push_str(anchor_seq);
+    haplotype.push_str(edge_seq);
+    haplotype
+
+}
+
+pub fn construct_major_haplotype_entitylist(graph:&GraphicalGenome) -> Vec<String> {
+    let mut anchorlist: Vec<_> = graph.anchor.keys().collect();
+    anchorlist.sort();
+    let mut src = anchorlist.first().unwrap().to_string();
+    let mut next_edge = "".to_string();
+    let mut dst = anchorlist.last().unwrap().to_string();
+    let mut haplotype = Vec::new();
+    // println!("{}", src);
+    let mut entity_set = HashSet::new();
+
+    while dst > src {
+        next_edge = find_most_supported_edge(&graph, src.clone().to_string());
+        if next_edge == "".to_string(){
+            break
+        }
+        if entity_set.contains(&src) {
+            break
+        }
+        entity_set.insert(src.clone());
+    
+        haplotype.push(src.clone());
+        haplotype.push(next_edge.clone());
+        src = graph.edges[&next_edge]["dst"].as_array()
+            .unwrap()
+            .first()
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_string();        
+        // println!("{}, {}, {}", src, dst, next_edge);
+    }
+
+    next_edge = find_most_supported_edge(&graph, src.clone().to_string());
+    if next_edge == "".to_string(){
+        return haplotype
+    }
+    haplotype.push(src.clone());
+    haplotype.push(next_edge.clone());
+    haplotype
+
+}

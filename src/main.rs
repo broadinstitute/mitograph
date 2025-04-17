@@ -125,6 +125,9 @@ enum Commands {
         /// path for output methylation bed file
         #[clap(short, long, value_parser)]
         outputfile: PathBuf,
+        /// min_probability to determine a C is methylated
+        #[clap(short, long, value_parser, default_value_t = 0.5)]
+        min_prob: f64,
     }
 }
 
@@ -183,8 +186,9 @@ fn main() {
             graphfile,
             bamfile,
             outputfile,
+            min_prob,
         } => {
-            methyl::start(&graphfile, &bamfile, &outputfile);
+            methyl::start(&graphfile, &bamfile, &outputfile, min_prob);
         }
     }
 }
