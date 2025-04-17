@@ -165,7 +165,7 @@ pub fn mapping_info(
             position_dict.get(anchor_seq).unwrap_or(&Vec::new()).clone(),
             position_dict.get(&anchor_rev).unwrap_or(&Vec::new()).clone()
         ].concat();
-
+        // ! should change into position_dict.get(anchor_seq).len() == 1 and position_dict.get(&anchor_rev) == 0
         if position_list.len() == 1 {
             a.insert(anchor.clone(), position_list[0]);
         } else {
