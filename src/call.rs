@@ -566,7 +566,7 @@ fn filter_vcf_record(
 fn write_vcf(
     variants: &[Variant],
     coverage: &HashMap<usize, usize>,
-    output_file: &str,
+    output_file: &PathBuf,
     sample_id: &str,
 ) -> std::io::Result<()> {
     let mut file = File::create(Path::new(output_file))?;
@@ -962,7 +962,7 @@ pub fn start(
     k: usize,
     maxlength: usize,
     minimal_ac: usize,
-    output_file: &str,
+    output_file: &PathBuf,
     sample_id: &str,
     hf_threshold: f32,
 ) {
@@ -974,7 +974,7 @@ pub fn start(
     let filtered_var = filter_vcf_record(&collapsed_var, &coverage, minimal_ac, hf_threshold);
     // modified, exclude filtered data for FPs
 
-    let graph_output = graph_file.with_extension("annotated.gfa");
+    let graph_output = output_file.with_extension("annotated.gfa");
     let _ = write_graph_from_graph(graph_output.to_str().unwrap(), &graph_with_cigar);
     
     // modified, exclude filtered data
@@ -1003,7 +1003,7 @@ pub fn start(
         sample_id,
     );
     // write matrix
-    let matrix_output = graph_file.with_extension("matrix.csv");
+    let matrix_output = output_file.with_extension("matrix.csv");
     let _ = write_matrix_to_csv(&filtered_matrix, &filtered_name, &read_set, matrix_output);
 }
 

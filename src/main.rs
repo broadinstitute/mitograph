@@ -91,7 +91,7 @@ enum Commands {
 
         /// output file name
         #[clap(short, long, value_parser, required = true)]
-        output_file: String,
+        output_file: PathBuf,
 
         /// sample name of the bam file
         #[clap(short, long, value_parser, required = true)]

@@ -417,8 +417,8 @@ pub fn add_methylation_to_graph(
 
 fn find_methylation_signal_on_major_haplotype(graph: &GraphicalGenome) -> HashMap<(usize, Option<usize>), HashMap<String, f64>> {
     let mut methyl: HashMap<(usize, Option<usize>), HashMap<String, f64>> = HashMap::new();
-    let major_haplotype = construct_major_haplotype_entitylist(&graph);
-    let major_haplotype_sequence = construct_major_haplotype(&graph);
+    let major_haplotype = construct_major_haplotype_entitylist(graph);
+    let major_haplotype_sequence = construct_major_haplotype(graph);
     let mut startpos = 0;
     
     let mut anchor_keys: Vec<_> = graph.anchor.keys().cloned().collect();
@@ -596,7 +596,7 @@ pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf, m
         }
         add_methylation_to_graph(&mut graph, &methyl_pos_dict, &read_position_mapping, &read_name);  
     }
-    let graph_output = graph_file.with_extension("methyl.gfa");
+    let graph_output = output_file.with_extension("methyl.gfa");
     let _ = write_graph_from_graph(graph_output.to_str().unwrap(), &graph);
     
 
