@@ -415,8 +415,8 @@ pub fn add_methylation_to_graph(
     }
 }
 
-fn find_methylation_signal_on_major_haplotype(graph: &GraphicalGenome) -> HashMap<(usize, Option<usize>), HashMap<String, f64>> {
-    let mut methyl: HashMap<(usize, Option<usize>), HashMap<String, f64>> = HashMap::new();
+fn find_methylation_signal_on_major_haplotype(graph: &GraphicalGenome) -> HashMap<(usize, Option<usize>, String), HashMap<String, f64>> {
+    let mut methyl: HashMap<(usize, Option<usize>, String), HashMap<String, f64>> = HashMap::new();
     let major_haplotype = construct_major_haplotype_entitylist(graph);
     let major_haplotype_sequence = construct_major_haplotype(graph);
     let mut startpos = 0;
@@ -487,18 +487,19 @@ fn find_methylation_signal_on_major_haplotype(graph: &GraphicalGenome) -> HashMa
                 
                 let currentpos = startpos + pos;
                 let referencepos = reference_position_mapping.get(&pos).cloned();
+                let motif = major_haplotype_sequence[currentpos..currentpos + 2].to_string();
                 
                 if currentpos >= major_haplotype_sequence.len() || 
                    major_haplotype_sequence.chars().nth(currentpos).unwrap() != 'C' {
                     continue;
                 }
                 
-                if currentpos + 1 >= major_haplotype_sequence.len() || 
-                   major_haplotype_sequence.chars().nth(currentpos + 1).unwrap() != 'G' {
-                    continue;
-                }
+                // if currentpos + 1 >= major_haplotype_sequence.len() || 
+                //    major_haplotype_sequence.chars().nth(currentpos + 1).unwrap() != 'G' {
+                //     continue;
+                // }
                 
-                methyl.entry((currentpos, referencepos)).or_insert_with(HashMap::new)
+                methyl.entry((currentpos, referencepos, motif)).or_insert_with(HashMap::new)
                      .insert(read.clone(), likelihood);
             }
         }
@@ -510,7 +511,7 @@ fn find_methylation_signal_on_major_haplotype(graph: &GraphicalGenome) -> HashMa
 }
 
 fn write_bed(
-    methyl: HashMap<(usize, Option<usize>), HashMap<String, f64>>,
+    methyl: HashMap<(usize, Option<usize>, String), HashMap<String, f64>>,
     output_file: &PathBuf,
     min_prob: f64
 ) -> std::io::Result<()> {
@@ -526,7 +527,7 @@ fn write_bed(
     // let min_prob = 0.5;
     // let mut methylation_signal: HashMap<(usize, Option<usize>), (f64, f64)> = HashMap::new();
     let mut methyl_info = Vec::new();
-    for ((pos, refpos), d) in methyl.iter() {
+    for ((pos, refpos, motif), d) in methyl.iter() {
         let mut methyl_count = 0;
         let mut unmethyl_count = 0;
         let total_count = d.len();
@@ -546,15 +547,15 @@ fn write_bed(
         let ref_pos_end = refpos.unwrap() + 2;
         let asm_pos_start = pos + 1;
         let asm_pos_end = pos + 2;
-        methyl_info.push((ref_pos_start, ref_pos_end, asm_pos_start, asm_pos_end, methyl_rate,unmethyl_rate,total_count, methyl_count, unmethyl_count));
+        methyl_info.push((ref_pos_start, ref_pos_end, asm_pos_start, asm_pos_end, motif, methyl_rate,unmethyl_rate,total_count, methyl_count, unmethyl_count));
 
     }
     methyl_info.sort_by_key(|item| item.0);
     for methyl_list in methyl_info.iter(){
-        let (ref_pos_start, ref_pos_end, asm_pos_start, asm_pos_end, methyl_rate,unmethyl_rate,total_count, methyl_count, unmethyl_count) = methyl_list;
+        let (ref_pos_start, ref_pos_end, asm_pos_start, asm_pos_end, motif, methyl_rate,unmethyl_rate,total_count, methyl_count, unmethyl_count) = methyl_list;
         writeln!(file, 
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            "ChrM", ref_pos_start, ref_pos_end, asm_pos_start, asm_pos_end, methyl_rate,unmethyl_rate,total_count,methyl_count, unmethyl_count,
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            "ChrM", ref_pos_start, ref_pos_end, asm_pos_start, asm_pos_end, motif, methyl_rate,unmethyl_rate,total_count,methyl_count, unmethyl_count,
             )?;
 
     }
