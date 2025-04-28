@@ -5,7 +5,7 @@ use rust_htslib::bam::{self, Read, Writer,IndexedReader, Header, Record, record:
 
 
 
-pub fn find_numts(bam_file: &PathBuf, chromo: &str) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
+pub fn find_numts(bam_file: &PathBuf, chromo: &str, mod_char:char, min_methyl_prob:f64, fraction_threshold:f64) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
     let mut numts_readnames: HashSet<String> = HashSet::new();
     // let mut bam = bam::Reader::from_path(bam_file)?;
     let mut bam = IndexedReader::from_path(bam_file).unwrap();
@@ -15,8 +15,14 @@ pub fn find_numts(bam_file: &PathBuf, chromo: &str) -> Result<HashSet<String>, B
     let tid = bam.header().tid(chromo.as_bytes())
         .ok_or("Chromosome not found in BAM header")?;
     
+    // Get the chromosome length
+    let chrom_length = bam.header().target_len(tid)
+        .ok_or("Could not get chromosome length")?;
+
+    println!("{},{}", tid, chrom_length);
+
     // Set the region to fetch
-    bam.fetch((tid, 0, 17000))?;
+    bam.fetch((tid, 0, chrom_length))?;
     
     for read in bam.records() {
         let record = read?;
@@ -46,14 +52,38 @@ pub fn find_numts(bam_file: &PathBuf, chromo: &str) -> Result<HashSet<String>, B
                     let parts: Vec<&str> = sa.split(',').collect();
                     if parts.len() >= 6 {
                         let chrom = parts[0];
-                        if chrom != chromo {
-                            numts_readnames.insert(query_name);
+                        if chrom != tid.to_string() {
+                            numts_readnames.insert(query_name.clone());
                             break;
                         }
                     }
                 }
             }
         }
+
+        // Check for methylation signals
+        let mut methylation_signal = Vec::new();
+        if let Ok(mods) = record.clone().basemods_iter() {
+            // Iterate over the modification types
+            for res in mods {
+                if let Ok( (position, m) ) = res {
+                    if m.modified_base as u8 as char != mod_char{
+                        continue
+                    }
+                    // let strand = mod_metadata.strand;
+                    let qual = m.qual as f32 / 255.0;
+                    methylation_signal.push(qual);
+
+                }
+            }                    
+        }
+        let count = methylation_signal.iter().filter(|&&q| q > min_methyl_prob as f32).count();
+        let methylated_fraction: f64 = count as f64 / methylation_signal.len() as f64;
+        if methylated_fraction > fraction_threshold {
+            numts_readnames.insert(query_name.clone());
+        }
+
+
     }
     
     Ok(numts_readnames)
@@ -101,10 +131,10 @@ fn write_bams(
 }
 
 // Example usage
-pub fn start(input_bam:&PathBuf, chromo: &str, mt_output:&PathBuf, numts_output:&PathBuf ) -> Result<(), Box<dyn std::error::Error>> {
+pub fn start(input_bam:&PathBuf, chromo: &str, mt_output:&PathBuf, numts_output:&PathBuf, min_prob:f64, fraction_max_methylation:f64 ) -> Result<(), Box<dyn std::error::Error>> {
     
     
-    match find_numts(input_bam, chromo) {
+    match find_numts(input_bam, chromo, 'm', min_prob, fraction_max_methylation) {
         Ok(numts) => {
             // Then split into separate BAM files
             write_bams(input_bam, mt_output, numts_output, chromo, &numts)?;
