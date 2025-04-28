@@ -1,4 +1,5 @@
 use ndarray::Array2;
+use rust_htslib::bam::ext::BamRecordExtensions;
 use rust_htslib::bam::{Read, Reader, Record};
 use std::path::Path;
 use std::{path::PathBuf, fs::File, io::{self, Write}};
@@ -246,35 +247,29 @@ pub fn get_methylation_read(r: &Record, mod_char: char) -> HashMap<usize, f32> {
                     continue
                 }
                 // let strand = mod_metadata.strand;
+                let pos_usize = position as usize;
                 let qual = m.qual as f32 / 255.0;
-
-                if !r.is_reverse() {
-                    // Forward strand
-                    let pos_usize = position as usize;
-                    if forward_sequence.chars().nth(pos_usize).map_or(false, |c| c == 'C') {
-                            methyl_pos_dict.insert(pos_usize, qual);
-                    }
-                } else {
-                    // Reverse strand
-                    let read_length = forward_sequence.len();
-                    let pos_usize : usize = position as usize;
-                    // let forward_pos = read_length - pos_usize - 1;
-                    let forward_pos = pos_usize;
+                let motif: String = if r.is_reverse(){
+                    forward_sequence[pos_usize-1..pos_usize +1 ].to_string()
                     
-                    // Check for 'C' at position or previous position
-                    if forward_pos > 0 && forward_sequence.chars().nth(forward_pos - 1).map_or(false, |c| c == 'C') {
-                        methyl_pos_dict.insert(forward_pos - 1, qual);
-                        // println!("reversed-strand base at forward_pos - 1 {}-{}", forward_pos - 1, forward_pos + 1);
-                    } else if forward_sequence.chars().nth(forward_pos).map_or(false, |c| c == 'C') {
-                        methyl_pos_dict.insert(forward_pos, qual);
-                        // println!("reversed-strand base at forward_pos {}-{}", forward_pos, forward_pos + 1);
-                    } else {
-                        println!("Something wrong {}-{}", forward_pos - 1, forward_pos + 1);
+                }else{
+                    forward_sequence[pos_usize..pos_usize +2 ].to_string()
+                };
+                    
+                if motif == "CG" {
+                    if r.is_reverse(){
+                        methyl_pos_dict.insert(pos_usize-1, qual);
+
+                    }else{
+                        methyl_pos_dict.insert(pos_usize, qual);
+
                     }
+                    
+                }else{
+                    println!("{},{},{}", pos_usize, qual, motif);
+                    continue
                 }
 
-
-                // println!("{} {},{}", position, m.modified_base as u8 as char, m.qual);
             }
         }                    
 
@@ -401,7 +396,10 @@ pub fn add_methylation_to_graph(
                         }
                         
                         if let Some(read_methyl) = methyl.get_mut(read_name).and_then(|rm| rm.as_array_mut()) {
-                            read_methyl.push(json!([offset, likelihood]));
+                            if !read_methyl.contains(&json!([offset, likelihood])){
+                                read_methyl.push(json!([offset, likelihood]));
+                            }
+                            
                         }
                     }
                 }
@@ -426,7 +424,9 @@ pub fn add_methylation_to_graph(
                         }
                         
                         if let Some(read_methyl) = methyl.get_mut(read_name).and_then(|rm| rm.as_array_mut()) {
-                            read_methyl.push(json!([offset, likelihood]));
+                            if !read_methyl.contains(&json!([offset, likelihood])){
+                                read_methyl.push(json!([offset, likelihood]));
+                            }
                         }
                     }
                 }
@@ -659,16 +659,105 @@ fn write_methylation_to_csv<P: AsRef<Path>>(
     Ok(())
 }
 
+fn write_methylation_alignment_to_csv<P: AsRef<Path>>(
+    methyl: HashMap<String, HashMap<usize, f32>>,
+    min_prob:f32,
+    strand_dict: HashMap<String, bool>,
+    path: P,
+    fraction_threshold:f64
+) -> Result<(), Box<dyn Error>> {
+    // Create a file and CSV writer
+    let file = File::create(path)?;
+    let mut writer = Writer::from_writer(file);
 
-fn write_dict_to_json<T: serde::Serialize>(dict: &T, file_path: &PathBuf) -> io::Result<()> {
-    // Convert the dictionary to a JSON string with pretty formatting
-    let json_string = serde_json::to_string_pretty(dict)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    // find all the readsets and positions
+    let mut refposlist = HashSet::new();
+    let mut read_set = HashSet::new();
+    let mut coverage_dict:HashMap<usize, usize> = HashMap::new();
+    for (read_name, d) in methyl.iter() {
+        read_set.insert(read_name.clone());
+        let strand = strand_dict.get(read_name).unwrap_or(&false);
+        for (refpos, &likelihood) in d.iter() {
+            let current_pos = if *strand {
+                refpos.clone() - 1
+            } else {
+                refpos.clone()
+            };
+            refposlist.insert(current_pos.clone());
+            let count = coverage_dict.get(&current_pos).unwrap_or(&0) + 1;
+            coverage_dict.insert(current_pos, count);
+        }
+    }
+    let mut refpos_list : Vec<usize> = Vec::new();
+    let total_read_number = read_set.len();
+    for (selected_pos, c) in coverage_dict.iter(){
+        if (fraction_threshold * total_read_number as f64) < *c as f64 {
+            refpos_list.push(selected_pos.clone());
+        }
+    }
+    refpos_list.sort();
+    // println!("{}", refpos_list.len());
+
+    let ref_pos_dict: HashMap<usize, usize> = refpos_list
+        .iter()
+        .enumerate()
+        .map(|(i, rpos)| (rpos.clone(), i))
+        .collect();
+
+    let mut read_vec: Vec<String> = read_set.into_iter().collect();
+    read_vec.sort();
+    let read_set_dict: HashMap<String, usize> = read_vec
+        .iter()
+        .enumerate()
+        .map(|(i, read)| (read.clone(), i))
+        .collect();
+    println!("read number {}, position number, {}", read_vec.len(),refpos_list.len());
+    // construct matrix
+    let mut matrix = Array2::<f64>::zeros((refpos_list.len(), read_vec.len()));
+    println!("{:?}", matrix.shape());
+    for (read_name, d) in methyl.iter() {
+        let col_index = read_set_dict.get(read_name).unwrap();
+        let strand = strand_dict.get(read_name).unwrap_or(&false);
+        for (refpos, &likelihood) in d.iter() {
+            let current_pos = if *strand {
+                refpos.clone() - 1
+            } else {
+                refpos.clone()
+            };
+            if !ref_pos_dict.contains_key(&current_pos){
+                continue
+            }
+            let row_index = ref_pos_dict.get(&current_pos).unwrap();
+            // matrix[[*row_index, *col_index]] = likelihood;
+            if likelihood > min_prob {
+                matrix[[*row_index, *col_index]] = 1.0;
+            }else if likelihood < 1.0-min_prob {
+                matrix[[*row_index, *col_index]] = -1.0;
+            }
+        }
+        
+    }
+    // Prepare header row (with empty cell for the corner)
+    let mut header = vec!["methylation".to_string()];
+    header.extend(read_vec.iter().cloned());
     
-    // Write the JSON string to a file
-    let mut file = File::create(file_path)?;
-    file.write_all(json_string.as_bytes())?;
+    // Write header
+    writer.write_record(&header)?;
     
+    // Write each row with its row name
+    for (row_idx, refpos_name) in refpos_list.iter().enumerate() {
+        let mut row = vec![refpos_name.to_string().clone()];
+        
+        // Add the values from the matrix
+        for col_idx in 0..matrix.ncols() {
+            row.push(matrix[[row_idx, col_idx]].to_string());
+        }
+        
+        writer.write_record(&row)?;
+    }
+    
+    // Flush and finish
+    writer.flush()?;
     Ok(())
 }
 
@@ -679,27 +768,61 @@ pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf, m
     println!("Processing BAM file");
     let mut bam = Reader::from_path(bam_file).unwrap();
     let mut read_name_set = HashSet::new();
+    let mut methyl_single_read: HashMap<String,HashMap<usize, Vec<f32>> >= HashMap::new(); // extract directly from reference map
+    let mut strand_dict:HashMap<String, bool> = HashMap::new();
     for record in bam.records(){
         let r = record.expect("Failed to read BAM record");
         // let mut read_sequence = String::from_utf8_lossy(&r.seq().as_bytes()).to_string();
         // if r.is_reverse(){
         //     read_sequence = reverse_complement(&read_sequence);
         // }
-        let read_name = String::from_utf8_lossy(&r.qname()).to_string();
-        if read_name_set.contains(&read_name) {
+        if r.is_unmapped(){
             continue
         }
+        if r.is_supplementary(){
+            continue
+        }
+        let read_name = String::from_utf8_lossy(&r.qname()).to_string();
+        // if read_name_set.contains(&read_name) {
+        //     continue
+        // }
+        strand_dict.insert(read_name.clone(), r.is_reverse());
         read_name_set.insert(read_name.clone());
         let read_position_mapping = find_mapping_position(&graph, &r);
         // Validate read_position_mapping
         validation(&graph, &read_position_mapping, &r);
-        
         let methyl_pos_dict = get_methylation_read(&r, 'm');
-        // println!("{}, {:?}, {}", &read_name, methyl_pos_dict.len(), r.is_reverse());
-
         // if r.is_reverse(){
-        //     println!("{:?}, {:?}", methyl_pos_dict.len(), read_position_mapping.len());
+        //     println!("{}, {}", methyl_pos_dict.len(), "-");
         // }
+        // else{
+        //     println!("{}, {}", methyl_pos_dict.len(), "+");
+        // }
+        
+        // map to reference coordinates
+        let aligned_pairs:HashMap<usize, usize> = r.aligned_pairs_full()
+                                .into_iter()
+                                .filter_map(|pair| {
+                                // Only include pairs where both positions are defined
+                                match pair {
+                                    [Some(q), Some(r)] => Some((q as usize, r as usize)),
+                                    _ => None
+                                }
+                            })
+                            .collect();
+
+        for (read_pos, likelihood) in methyl_pos_dict.iter(){
+            if aligned_pairs.contains_key(read_pos){
+                let ref_pos = aligned_pairs.get(read_pos).copied().unwrap_or(0);
+                methyl_single_read
+                                    .entry(read_name.clone())
+                                    .or_insert_with(HashMap::new)
+                                    .entry(ref_pos)
+                                    .or_insert_with(Vec::new)
+                                    .push(*likelihood);
+            }
+
+        }
 
         if read_position_mapping.len() == 0 {
             continue
@@ -707,6 +830,7 @@ pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf, m
         if methyl_pos_dict.len() == 0 {
             continue
         }
+        // println!("{}", read_position_mapping.len());
         add_methylation_to_graph(&mut graph, &methyl_pos_dict, &read_position_mapping, &read_name);  
     }
     let graph_output = output_file.with_extension("methyl.gfa");
@@ -717,10 +841,19 @@ pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf, m
     let methyl_dict =  find_methylation_signal_on_major_haplotype(&graph);
     let _ = write_bed(methyl_dict.clone(), output_file, min_prob);
 
+
+    // let json_string = serde_json::to_string_pretty(&methyl_single_read)
+    //     .map_err(|e| io::Error::new(io::ErrorKind::Other, e)).unwrap();
+    // // println!("{}", json_string);
+    // // Write the JSON string to a file
+    // let mut file = File::create("debug.json").unwrap();
+    // file.write_all(json_string.as_bytes()).unwrap();
+
     // extranct read level methylation patterns
+    println!("{}", methyl_single_read.len());
     let matrix_output = output_file.with_extension("methylation_per_read.csv");
     let _ = write_methylation_to_csv(methyl_dict, min_prob, matrix_output);
-
+    // let _ = write_methylation_alignment_to_csv(methyl_single_read, min_prob as f32, strand_dict, matrix_output, 0.1);
 
 
 }
