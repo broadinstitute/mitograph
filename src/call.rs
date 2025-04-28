@@ -17,6 +17,7 @@ use rand::thread_rng;
 use statrs::distribution::{Normal, ContinuousCDF};
 use regex::Regex;
 use adjustp::{adjust, Procedure};
+use bio::io::fasta::{Reader, Record};
 
 
 pub fn find_ref_edge(
@@ -568,13 +569,15 @@ fn write_vcf(
     coverage: &HashMap<usize, usize>,
     output_file: &PathBuf,
     sample_id: &str,
+    referencename:&str,
+    referencelength:usize
 ) -> std::io::Result<()> {
     let mut file = File::create(Path::new(output_file))?;
 
     // Write VCF header
     writeln!(file, "##fileformat=VCFv4.2")?;
-    writeln!(file, "##reference=chrM")?;
-    writeln!(file, "##contig=<ID=chrM,length=16569>")?;
+    writeln!(file, "##reference={}", referencename)?;
+    writeln!(file, "##contig=<ID={},length={}>", referencename, referencelength)?;
     writeln!(
         file,
         "##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Read Depth\">"
@@ -958,7 +961,7 @@ fn permutation_test(
 
 pub fn start(
     graph_file: &PathBuf,
-    ref_strain: &str,
+    fasta_reference: &PathBuf,
     k: usize,
     maxlength: usize,
     minimal_ac: usize,
@@ -966,10 +969,17 @@ pub fn start(
     sample_id: &str,
     hf_threshold: f32,
 ) {
+    // reference fasta information
+    let ref_reader = Reader::from_file(fasta_reference).unwrap();
+    let reference_sequence: Vec<Record> = ref_reader.records().map(|r| r.unwrap()).collect();
+    let ref_seq = String::from_utf8_lossy(reference_sequence[0].seq()).to_string();
+    let ref_header = reference_sequence[0].id().to_string();
+    
+    // read in graphical genome
     let graph = agg::GraphicalGenome::load_graph(graph_file).unwrap();
     // generate cigar
-    let mut graph_with_cigar = generate_cigar(graph, ref_strain, k, maxlength, 2);
-    let (variants, coverage, read_record) = get_variant(&mut graph_with_cigar, k, ref_strain);
+    let mut graph_with_cigar = generate_cigar(graph, &ref_header, k, maxlength, 2);
+    let (variants, coverage, read_record) = get_variant(&mut graph_with_cigar, k, &ref_header);
     let collapsed_var = collapse_identical_records(variants);
     let filtered_var = filter_vcf_record(&collapsed_var, &coverage, minimal_ac, hf_threshold);
     // modified, exclude filtered data for FPs
@@ -979,28 +989,19 @@ pub fn start(
     
     // modified, exclude filtered data
     let (matrix, var_record, read_set) = construct_matrix(&read_record, &filtered_var);
-    
-    // // write original matrix
-    // let original_matrix_output = graph_file.with_extension("original.matrix.csv");
-    // let _ = write_matrix_to_csv(&matrix, &var_record, &read_set, original_matrix_output);
-
-    // // write original vcf
-    // let _ = write_vcf(
-    //     &filtered_var,
-    //     &coverage,
-    //      &format!("origin_{}", output_file),
-    //     sample_id,
-    // );
 
     // use matrix information to filter vcf
     let (permu_filtered_var, filtered_matrix, filtered_name) = permutation_test(&matrix, var_record, 0.001, 100, &filtered_var, 0.2 );
 
+    
     // write filtered vcf
     let _ = write_vcf(
         &permu_filtered_var,
         &coverage,
         output_file,
         sample_id,
+        &ref_header,
+        ref_seq.len()
     );
     // write matrix
     let matrix_output = output_file.with_extension("matrix.csv");

@@ -437,8 +437,8 @@ pub fn add_methylation_to_graph(
     }
 }
 
-fn find_methylation_signal_on_major_haplotype(graph: &GraphicalGenome) -> HashMap<(usize, Option<usize>, String), HashMap<String, f64>> {
-    let mut methyl: HashMap<(usize, Option<usize>, String), HashMap<String, f64>> = HashMap::new();
+fn find_methylation_signal_on_major_haplotype(graph: &GraphicalGenome) -> HashMap<(usize, usize, String), HashMap<String, f64>> {
+    let mut methyl: HashMap<(usize, usize, String), HashMap<String, f64>> = HashMap::new();
     let major_haplotype = construct_major_haplotype_entitylist(graph);
     let major_haplotype_sequence = construct_major_haplotype(graph);
     let mut startpos = 0;
@@ -520,9 +520,11 @@ fn find_methylation_signal_on_major_haplotype(graph: &GraphicalGenome) -> HashMa
                    major_haplotype_sequence.chars().nth(currentpos + 1).unwrap() != 'G' {
                     continue;
                 }
-                
-                methyl.entry((currentpos, referencepos, motif)).or_insert_with(HashMap::new)
+                if let Some(referencepos_value) = referencepos {
+                    methyl.entry((currentpos, referencepos_value, motif)).or_insert_with(HashMap::new)
                      .insert(read.clone(), likelihood);
+                }
+
             }
         }
         
@@ -533,7 +535,7 @@ fn find_methylation_signal_on_major_haplotype(graph: &GraphicalGenome) -> HashMa
 }
 
 fn write_bed(
-    methyl: HashMap<(usize, Option<usize>, String), HashMap<String, f64>>,
+    methyl: HashMap<(usize, usize, String), HashMap<String, f64>>,
     output_file: &PathBuf,
     min_prob: f64
 ) -> std::io::Result<()> {
@@ -565,8 +567,8 @@ fn write_bed(
         let methyl_rate = methyl_count as f64 / total_count as f64;
         let unmethyl_rate = unmethyl_count as f64 / total_count as f64;
         // 1-based coordinates
-        let ref_pos_start = refpos.unwrap() + 1;
-        let ref_pos_end = refpos.unwrap() + 2;
+        let ref_pos_start = refpos + 1;
+        let ref_pos_end = refpos + 2;
         let asm_pos_start = pos + 1;
         let asm_pos_end = pos + 2;
         methyl_info.push((ref_pos_start, ref_pos_end, asm_pos_start, asm_pos_end, motif, methyl_rate,unmethyl_rate,total_count, methyl_count, unmethyl_count));
@@ -587,7 +589,7 @@ fn write_bed(
 }
 
 fn write_methylation_to_csv<P: AsRef<Path>>(
-    methyl: HashMap<(usize, Option<usize>, String), HashMap<String, f64>>,
+    methyl: HashMap<(usize, usize, String), HashMap<String, f64>>,
     min_prob:f64,
     path: P
 ) -> Result<(), Box<dyn Error>> {
@@ -599,7 +601,7 @@ fn write_methylation_to_csv<P: AsRef<Path>>(
     let mut refpos_list = Vec::new();
     let mut read_set = HashSet::new();
     for ((pos, refpos, motif), d) in methyl.iter() {
-        refpos_list.push(refpos.unwrap());
+        refpos_list.push(refpos);
         for (read_name, &likelihood) in d.iter() {
             read_set.insert(read_name.clone());
         }
@@ -610,7 +612,7 @@ fn write_methylation_to_csv<P: AsRef<Path>>(
     let ref_pos_dict: HashMap<usize, usize> = refpos_list
         .iter()
         .enumerate()
-        .map(|(i, rpos)| (rpos.clone(), i))
+        .map(|(i, rpos)| (**rpos, i))
         .collect();
 
     let mut read_vec: Vec<String> = read_set.into_iter().collect();
@@ -624,7 +626,7 @@ fn write_methylation_to_csv<P: AsRef<Path>>(
     // construct matrix
     let mut matrix = Array2::<f64>::zeros((refpos_list.len(), read_vec.len()));
     for ((pos, refpos, motif), d) in methyl.iter() {
-        let row_index = ref_pos_dict.get(&refpos.unwrap()).unwrap();
+        let row_index = ref_pos_dict.get(&refpos).unwrap();
         for (read_name, &likelihood) in d.iter() {
             let col_index = read_set_dict.get(read_name).unwrap();
             // matrix[[*row_index, *col_index]] = likelihood;

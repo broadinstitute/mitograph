@@ -41,6 +41,15 @@ enum Commands {
         /// output path for numts bam file
         #[clap(short, long, required = true, value_parser)]
         numts_output: PathBuf,
+
+        /// min_probability to determine a C is methylated
+        #[clap(short, long, value_parser, default_value_t = 0.5)]
+        prob_min: f64,
+
+        /// max fraction to keep a read as mtDNA derived
+         #[clap(short, long, value_parser, default_value_t = 0.2)]
+        fraction_max_methylation: f64,
+
     },
 
     /// Build graph from long-read data in FASTA or Bam file.
@@ -54,13 +63,13 @@ enum Commands {
         #[clap(short, long, value_parser, default_value_t = DEFAULT_KMER_SIZE)]
         kmer_size: usize,
 
-        /// Name of sequence to use as reference.
+        /// Reference Fasta file, rCRS
         #[clap(short, long, value_parser, required = true)]
         reference_path: PathBuf,
 
         /// bam or fasta file with reads spanning locus of interest.
-        #[clap(required = true, value_parser)]
-        read_path: PathBuf,
+        #[clap(short, long, value_parser,required = true)]
+        input_read_path: PathBuf,
     },
 
     ///Call Variants from Sequence Graph
@@ -70,9 +79,9 @@ enum Commands {
         #[clap(short, long, value_parser)]
         graphfile: PathBuf,
 
-        /// Name of sequence to use as reference.
+        /// Reference Fasta path
         #[clap(short, long, value_parser, required = true)]
-        ref_strain: String,
+        reference_fasta: PathBuf,
 
         /// Kmer-size
         #[clap(short, long, value_parser, default_value_t = DEFAULT_KMER_SIZE)]
@@ -127,7 +136,7 @@ enum Commands {
         outputfile: PathBuf,
         /// min_probability to determine a C is methylated
         #[clap(short, long, value_parser, default_value_t = 0.5)]
-        min_prob: f64,
+        prob_min: f64,
         /// extract the per-read level methylation signals on major haplotype or all the reads 
         #[clap(short, long, value_parser, default_value_t = false)]
         major_haplotype:bool
@@ -142,22 +151,24 @@ fn main() {
             chromo,
             mt_output,
             numts_output,
+            prob_min,
+            fraction_max_methylation
         } => {
-            filter::start(&input_bam, &chromo, &mt_output, &numts_output);
+            let _ = filter::start(&input_bam, &chromo, &mt_output, &numts_output, prob_min, fraction_max_methylation);
         }
 
         Commands::Build {
             output,
             kmer_size,
-            read_path,
+            input_read_path,
             reference_path,
         } => {
-            build::start(&output, kmer_size, &read_path, &reference_path);
+            build::start(&output, kmer_size, &input_read_path, &reference_path);
         }
 
         Commands::Call {
             graphfile,
-            ref_strain,
+            reference_fasta,
             k,
             length_max,
             minimal_ac,
@@ -167,7 +178,7 @@ fn main() {
         } => {
             call::start(
                 &graphfile,
-                &ref_strain,
+                &reference_fasta,
                 k,
                 length_max,
                 minimal_ac,
@@ -189,10 +200,10 @@ fn main() {
             graphfile,
             bamfile,
             outputfile,
-            min_prob,
+            prob_min,
             major_haplotype
         } => {
-            methyl::start(&graphfile, &bamfile, &outputfile, min_prob, major_haplotype);
+            methyl::start(&graphfile, &bamfile, &outputfile, prob_min, major_haplotype);
         }
     }
 }
