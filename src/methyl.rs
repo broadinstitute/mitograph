@@ -660,7 +660,7 @@ fn write_methylation_to_csv<P: AsRef<Path>>(
 }
 
 fn write_methylation_alignment_to_csv<P: AsRef<Path>>(
-    methyl: HashMap<String, HashMap<usize, f32>>,
+    methyl: HashMap<String, HashMap<usize, Vec<f32>>>,
     min_prob:f32,
     strand_dict: HashMap<String, bool>,
     path: P,
@@ -677,15 +677,10 @@ fn write_methylation_alignment_to_csv<P: AsRef<Path>>(
     for (read_name, d) in methyl.iter() {
         read_set.insert(read_name.clone());
         let strand = strand_dict.get(read_name).unwrap_or(&false);
-        for (refpos, &likelihood) in d.iter() {
-            let current_pos = if *strand {
-                refpos.clone() - 1
-            } else {
-                refpos.clone()
-            };
-            refposlist.insert(current_pos.clone());
-            let count = coverage_dict.get(&current_pos).unwrap_or(&0) + 1;
-            coverage_dict.insert(current_pos, count);
+        for (refpos, likelihood) in d.iter() {
+            refposlist.insert(refpos.clone());
+            let count = coverage_dict.get(&refpos).unwrap_or(&0) + 1;
+            coverage_dict.insert(*refpos, count);
         }
     }
     let mut refpos_list : Vec<usize> = Vec::new();
@@ -717,21 +712,22 @@ fn write_methylation_alignment_to_csv<P: AsRef<Path>>(
     println!("{:?}", matrix.shape());
     for (read_name, d) in methyl.iter() {
         let col_index = read_set_dict.get(read_name).unwrap();
-        let strand = strand_dict.get(read_name).unwrap_or(&false);
-        for (refpos, &likelihood) in d.iter() {
-            let current_pos = if *strand {
-                refpos.clone() - 1
-            } else {
-                refpos.clone()
-            };
-            if !ref_pos_dict.contains_key(&current_pos){
+        // let strand = strand_dict.get(read_name).unwrap_or(&false);
+        for (refpos, likelihood) in d.iter() {
+            if !ref_pos_dict.contains_key(&refpos){
                 continue
             }
-            let row_index = ref_pos_dict.get(&current_pos).unwrap();
+            let row_index = ref_pos_dict.get(&refpos).unwrap();
             // matrix[[*row_index, *col_index]] = likelihood;
-            if likelihood > min_prob {
+            if likelihood.len() > 1{
+                println!("{}, {}, {:?}", refpos, read_name, likelihood);
+                continue
+            }
+            let likelihood_value = likelihood[0];
+    
+            if likelihood_value > min_prob {
                 matrix[[*row_index, *col_index]] = 1.0;
-            }else if likelihood < 1.0-min_prob {
+            }else if likelihood_value < 1.0-min_prob {
                 matrix[[*row_index, *col_index]] = -1.0;
             }
         }
@@ -761,7 +757,7 @@ fn write_methylation_alignment_to_csv<P: AsRef<Path>>(
     Ok(())
 }
 
-pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf, min_prob: f64) {
+pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf, min_prob: f64, major_haploype: bool) {
     println!("Add Methylation Signals!");
     // annotate graph
     let mut graph = GraphicalGenome::load_graph(graph_file).unwrap();
@@ -792,12 +788,6 @@ pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf, m
         // Validate read_position_mapping
         validation(&graph, &read_position_mapping, &r);
         let methyl_pos_dict = get_methylation_read(&r, 'm');
-        // if r.is_reverse(){
-        //     println!("{}, {}", methyl_pos_dict.len(), "-");
-        // }
-        // else{
-        //     println!("{}, {}", methyl_pos_dict.len(), "+");
-        // }
         
         // map to reference coordinates
         let aligned_pairs:HashMap<usize, usize> = r.aligned_pairs_full()
@@ -841,19 +831,16 @@ pub fn start (graph_file: &PathBuf, bam_file: &PathBuf, output_file: &PathBuf, m
     let methyl_dict =  find_methylation_signal_on_major_haplotype(&graph);
     let _ = write_bed(methyl_dict.clone(), output_file, min_prob);
 
-
-    // let json_string = serde_json::to_string_pretty(&methyl_single_read)
-    //     .map_err(|e| io::Error::new(io::ErrorKind::Other, e)).unwrap();
-    // // println!("{}", json_string);
-    // // Write the JSON string to a file
-    // let mut file = File::create("debug.json").unwrap();
-    // file.write_all(json_string.as_bytes()).unwrap();
-
     // extranct read level methylation patterns
-    println!("{}", methyl_single_read.len());
+    // println!("{}", methyl_single_read.len());
     let matrix_output = output_file.with_extension("methylation_per_read.csv");
-    let _ = write_methylation_to_csv(methyl_dict, min_prob, matrix_output);
-    // let _ = write_methylation_alignment_to_csv(methyl_single_read, min_prob as f32, strand_dict, matrix_output, 0.1);
+    if major_haploype {
+        let _ = write_methylation_to_csv(methyl_dict, min_prob, matrix_output);
+    }else{
+        let _ = write_methylation_alignment_to_csv(methyl_single_read, min_prob as f32, strand_dict, matrix_output, 0.1);
 
+    }
+    
+    
 
 }

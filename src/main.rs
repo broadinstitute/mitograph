@@ -128,6 +128,9 @@ enum Commands {
         /// min_probability to determine a C is methylated
         #[clap(short, long, value_parser, default_value_t = 0.5)]
         min_prob: f64,
+        /// extract the per-read level methylation signals on major haplotype or all the reads 
+        #[clap(short, long, value_parser, default_value_t = false)]
+        major_haplotype:bool
     }
 }
 
@@ -187,8 +190,9 @@ fn main() {
             bamfile,
             outputfile,
             min_prob,
+            major_haplotype
         } => {
-            methyl::start(&graphfile, &bamfile, &outputfile, min_prob);
+            methyl::start(&graphfile, &bamfile, &outputfile, min_prob, major_haplotype);
         }
     }
 }
