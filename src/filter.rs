@@ -19,7 +19,7 @@ pub fn find_numts(bam_file: &PathBuf, chromo: &str, mod_char:char, min_methyl_pr
     let chrom_length = bam.header().target_len(tid)
         .ok_or("Could not get chromosome length")?;
 
-    println!("{},{}", tid, chrom_length);
+    println!("{},{},{}", chromo, tid, chrom_length);
 
     // Set the region to fetch
     bam.fetch((tid, 0, chrom_length))?;
@@ -52,7 +52,8 @@ pub fn find_numts(bam_file: &PathBuf, chromo: &str, mod_char:char, min_methyl_pr
                     let parts: Vec<&str> = sa.split(',').collect();
                     if parts.len() >= 6 {
                         let chrom = parts[0];
-                        if chrom != tid.to_string() {
+                        if chrom != chromo.to_string() {
+                            // println!("{},{}", chrom, chromo);
                             numts_readnames.insert(query_name.clone());
                             break;
                         }
@@ -62,32 +63,34 @@ pub fn find_numts(bam_file: &PathBuf, chromo: &str, mod_char:char, min_methyl_pr
         }
 
         // Check for methylation signals
+        if record.aux(b"Mm").is_ok() || record.aux(b"Ml").is_ok() || record.aux(b"MM").is_ok() || record.aux(b"ML").is_ok() {
+            let mut methylation_signal = Vec::new();
+            if let Ok(mods) = record.clone().basemods_iter() {
+                // Iterate over the modification types
+                for res in mods {
+                    if let Ok( (position, m) ) = res {
+                        if m.modified_base as u8 as char != mod_char{
+                            continue
+                        }
+                        // let strand = mod_metadata.strand;
+                        let qual = m.qual as f32 / 255.0;
+                        methylation_signal.push(qual);
 
-        let mut methylation_signal = Vec::new();
-        if let Ok(mods) = record.clone().basemods_iter() {
-            // Iterate over the modification types
-            for res in mods {
-                if let Ok( (position, m) ) = res {
-                    if m.modified_base as u8 as char != mod_char{
-                        continue
                     }
-                    // let strand = mod_metadata.strand;
-                    let qual = m.qual as f32 / 255.0;
-                    methylation_signal.push(qual);
+                }                    
+            }
 
-                }
-            }                    
-        }
-        if methylation_signal.len() < 1{
-            continue
-        }
-        let count = methylation_signal.iter().filter(|&&q| q > min_methyl_prob as f32).count();
-        let methylated_fraction: f64 = count as f64 / methylation_signal.len() as f64;
-        if methylated_fraction > fraction_threshold {
-            numts_readnames.insert(query_name.clone());
-        }
+            if methylation_signal.len() == 0{
+                continue
+            }
 
+            let count = methylation_signal.iter().filter(|&&q| q > min_methyl_prob as f32).count();
+            let methylated_fraction: f64 = count as f64 / methylation_signal.len() as f64;
+            if methylated_fraction > fraction_threshold {
+                numts_readnames.insert(query_name.clone());
+            }
 
+        }
     }
     
     Ok(numts_readnames)
