@@ -62,6 +62,7 @@ pub fn find_numts(bam_file: &PathBuf, chromo: &str, mod_char:char, min_methyl_pr
         }
 
         // Check for methylation signals
+
         let mut methylation_signal = Vec::new();
         if let Ok(mods) = record.clone().basemods_iter() {
             // Iterate over the modification types
@@ -76,6 +77,9 @@ pub fn find_numts(bam_file: &PathBuf, chromo: &str, mod_char:char, min_methyl_pr
 
                 }
             }                    
+        }
+        if methylation_signal.len() < 1{
+            continue
         }
         let count = methylation_signal.iter().filter(|&&q| q > min_methyl_prob as f32).count();
         let methylated_fraction: f64 = count as f64 / methylation_signal.len() as f64;

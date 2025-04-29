@@ -1,6 +1,6 @@
 version 1.0
 
-workflow mitograph_methyl {
+workflow mitograph_updated {
     input {
         File whole_genome_bam
         File whole_genome_bai
@@ -44,6 +44,13 @@ workflow mitograph_methyl {
             min_prob = 0.5
 
     }
+    
+    call Asm {
+        input:
+            graph_gfa = Build.graph,
+            prefix = prefix,
+            sampleid=sampleid
+    }
 
 
     output {
@@ -51,6 +58,7 @@ workflow mitograph_methyl {
         File vcf_file = Call.vcf
         File methyl_file = Methyl.bed
         File matrix_file = Methyl.matrix
+        File mitograph_fasta = Asm.fasta
     }
 }
 
@@ -91,7 +99,7 @@ task Build {
     command <<<
         set -euxo pipefail
 
-        /mitograph/target/release/mitograph build -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa ~{bam}
+        /mitograph/target/release/mitograph build -i ~{bam} -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa 
 
     >>>
 
@@ -152,7 +160,7 @@ task Methyl {
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph methyl -g ~{graph_gfa} -b ~{bam} -m ~{min_prob} -o ~{sampleid}.~{prefix}.bed
+        /mitograph/target/release/mitograph methyl -g ~{graph_gfa} -p ~{min_prob} -b ~{bam} -o ~{sampleid}.~{prefix}.bed
 
     >>>
 
@@ -160,6 +168,32 @@ task Methyl {
         File graph = "~{sampleid}.~{prefix}.methyl.gfa"
         File matrix = "~{sampleid}.~{prefix}.methylation_per_read.csv"
         File bed = "~{sampleid}.~{prefix}.bed"
+    }
+
+    runtime {
+        docker: "hangsuunc/mitograph:v3"
+        memory: "2 GB"
+        cpu: 1
+        disks: "local-disk 10 SSD"
+    }
+}
+
+task Asm {
+
+    input {
+        File graph_gfa
+        String prefix
+        String sampleid
+    }
+
+    command <<<
+        set -euxo pipefail
+        /mitograph/target/release/mitograph asm -g ~{graph_gfa} -s ~{sampleid} -o ~{sampleid}.~{prefix}.fasta
+
+    >>>
+
+    output {
+        File fasta = "~{sampleid}.~{prefix}.fasta"
     }
 
     runtime {
