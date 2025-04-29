@@ -6,7 +6,6 @@ workflow mitograph_methyl {
         File whole_genome_bai
         File reference_fa
         String prefix
-        String reference_header
         String sampleid
         Int kmer_size
 
@@ -15,7 +14,7 @@ workflow mitograph_methyl {
         input:
             bam = whole_genome_bam,
             bai = whole_genome_bai,
-            prefix = prefix
+            prefix = sampleid
     }
 
     call Build {
@@ -30,7 +29,7 @@ workflow mitograph_methyl {
     call Call {
         input:
             graph_gfa = Build.graph,
-            reference_name = reference_header,
+            reference_fa = reference_fa,
             prefix = prefix,
             kmer_size = kmer_size,
             sampleid=sampleid
@@ -41,7 +40,7 @@ workflow mitograph_methyl {
             graph_gfa = Call.graph,
             bam = Filter.mt_bam,
             sampleid = sampleid,
-            prefix = "methyl",
+            prefix = prefix,
             min_prob = 0.5
 
     }
@@ -51,6 +50,7 @@ workflow mitograph_methyl {
         File graph = Methyl.graph
         File vcf_file = Call.vcf
         File methyl_file = Methyl.bed
+        File matrix_file = Methyl.matrix
     }
 }
 
@@ -75,7 +75,7 @@ task Filter {
         docker: "hangsuunc/mitograph:v3"
         memory: "1 GB"
         cpu: 1
-        disks: "local-disk 100 SSD"
+        disks: "local-disk 300 SSD"
     }
 }
 
@@ -111,21 +111,24 @@ task Call {
 
     input {
         File graph_gfa
-        String reference_name
+        File reference_fa
         String prefix
         String sampleid
         Int kmer_size
     }
+    
+    
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_name} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
+        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_fa} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
         ls
 
     >>>
 
     output {
         File graph = "~{sampleid}.~{prefix}.annotated.gfa"
+        File matrix = "~{sampleid}.~{prefix}.matrix.csv"
         File vcf = "~{sampleid}.~{prefix}.vcf"
     }
 
@@ -155,6 +158,7 @@ task Methyl {
 
     output {
         File graph = "~{sampleid}.~{prefix}.methyl.gfa"
+        File matrix = "~{sampleid}.~{prefix}.methylation_per_read.csv"
         File bed = "~{sampleid}.~{prefix}.bed"
     }
 
