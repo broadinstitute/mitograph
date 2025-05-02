@@ -1,94 +1,158 @@
 version 1.0
 workflow CompareFasta {
     input {
-        # File whole_hap1_bam
-        # File whole_hap1_bai
-        # File whole_hap2_bam
-        # File whole_hap2_bai
+        File whole_hap1_bam
+        File whole_hap1_bai
+        File whole_hap2_bam
+        File whole_hap2_bai
         File whole_read_bam
         File whole_read_bai
         File reference_fa
         File reference_gb
         String prefix
-        String reference_header
         String sampleid
         Int kmer_size
+        Float currentCoverage
+        Array[Int] desiredCoverages
 
     }
 
-    # # extract truth assembly
-    # call SubsetBam as Hap1 {
-    #     input:
-    #         bam = whole_hap1_bam,
-    #         bai = whole_hap1_bai,
-    #         locus = "chrM",
-    #         prefix = sampleid + "hap1"
-    # }
-
-    # call SubsetBam as Hap2 {
-    #     input:
-    #         bam = whole_hap2_bam,
-    #         bai = whole_hap2_bai,
-    #         locus = "chrM",
-    #         prefix = sampleid + "hap2"
-    # }
-
-    # call MergeFasta {
-    #     input:        
-    #         fasta1 = Hap1.subset_fasta,
-    #         fasta2 = Hap2.subset_fasta,
-    #         locus = "chrM",
-    #         prefix = sampleid
-    # }
-
-    # call mitograph assembly
-    call Filter {
+    # extract truth assembly
+    call SubsetBam as Hap1 {
         input:
-            bam = whole_read_bam,
-            bai = whole_read_bai,
-            prefix = prefix
-    }
-
-    call Build {
-        input:
-            bam = Filter.mt_bam,
-            reference = reference_fa,
-            prefix = prefix,
-            kmer_size = kmer_size,
-            sampleid = sampleid
-    }
-
-    call Asm {
-        input:
-            graph_gfa = Build.graph,
-            prefix = "mitograph",
-            sampleid=sampleid
-    }
-
-    # call mitohifi assembly
-    call SubsetBam as SubsetReads {
-        input:
-            bam = whole_read_bam,
-            bai = whole_read_bai,
+            bam = whole_hap1_bam,
+            bai = whole_hap1_bai,
             locus = "chrM",
-            prefix = sampleid + "reads"
+            prefix = sampleid + "hap1"
     }
 
-    call MitoHifiAsm {
+    call SubsetBam as Hap2 {
         input:
-            reads = SubsetReads.subset_fastq,
-            reffa = reference_fa,
-            refgb = reference_gb
-
+            bam = whole_hap2_bam,
+            bai = whole_hap2_bai,
+            locus = "chrM",
+            prefix = sampleid + "hap2"
     }
+
+    call MergeFasta {
+        input:        
+            fasta1 = Hap1.subset_fasta,
+            fasta2 = Hap2.subset_fasta,
+            locus = "chrM",
+            prefix = sampleid
+    }
+    
+    call SubsetBam as SubsetReads {
+            input:
+                bam = whole_read_bam,
+                bai = whole_read_bai,
+                locus = "chrM",
+                prefix = sampleid + "reads"
+    }
+    # downsample Coverage
+    scatter (desiredCoverage in desiredCoverages) {
+        call downsampleBam {input:
+            input_bam = SubsetReads.subset_bam,
+            input_bam_bai = SubsetReads.subset_bai,
+            basename = sampleid,
+            desiredCoverage = desiredCoverage,
+            currentCoverage = currentCoverage,
+            preemptible_tries = 0
+        }
+
+        # call mitograph assembly
+        call Filter {
+                input:
+                    bam = downsampleBam.downsampled_bam,
+                    bai = downsampleBam.downsampled_bai,
+                    prefix = sampleid
+            }
+
+        call Build {
+            input:
+                bam = Filter.mt_bam,
+                reference = reference_fa,
+                prefix = prefix,
+                kmer_size = kmer_size,
+                sampleid = sampleid
+        }
+        call Asm {
+            input:
+                graph_gfa = Build.graph,
+                prefix = prefix + "_mitograph${desiredCoverage}",
+                sampleid=sampleid
+        }
+
+        # call mitohifi assembly
+        call SubsetBam as SubsetReads_1 {
+                input:
+                    bam = downsampleBam.downsampled_bam,
+                    bai = downsampleBam.downsampled_bai,
+                    locus = "chrM",
+                    prefix = sampleid + "reads"
+        }
+        call MitoHifiAsm {
+            input:
+                reads = SubsetReads_1.subset_fastq,
+                reffa = reference_fa,
+                refgb = reference_gb,
+                prefix = prefix + "_mitohifi${desiredCoverage}",
+
+        }
+    }
+    
+    
+    
+    
 
 
     output {
-        # File truth_fasta = MergeFasta.merged_fasta
-        File mitograph_fasta = Asm.fasta
-        File mitohifi_fasta = MitoHifiAsm.final_fa
+        File truth_fasta = MergeFasta.merged_fasta
+        Array[File] mitograph_fasta = Asm.fasta
+        Array[File] mitohifi_fasta = MitoHifiAsm.final_fa
     }
 }
+
+task downsampleBam {
+  input {
+    File input_bam
+    File input_bam_bai
+    String basename
+    Int desiredCoverage
+    Float currentCoverage
+    Float scalingFactor = desiredCoverage / currentCoverage
+
+    Int? preemptible_tries
+  }
+
+  meta {
+    description: "Uses Picard to downsample to desired coverage based on provided estimate of coverage."
+  }
+  parameter_meta {
+    basename: "Input is a string specifying the sample name which will be used to locate the file on gs."
+    downsampled_bam: "Output is a bam file downsampled to the specified mean coverage."
+    downsampled_bai: "Output is the index file for a bam file downsampled to the specified mean coverage."
+    desiredCoverage: "Input is an integer of the desired approximate coverage in the output bam file."
+  }
+  command <<<
+    set -eo pipefail
+    gatk DownsampleSam -I ~{input_bam} -O ~{basename}_~{desiredCoverage}x.bam -R 7 -P ~{scalingFactor} -S ConstantMemory --VALIDATION_STRINGENCY LENIENT --CREATE_INDEX true
+
+
+  >>>
+  runtime {
+    preemptible: select_first([preemptible_tries, 5])
+    memory: "8 GB"
+    cpu: "2"
+    disks: "local-disk 500 HDD"
+    docker: "us.gcr.io/broad-gatk/gatk"
+  }
+  output {
+    File downsampled_bam = "~{basename}_~{desiredCoverage}x.bam"
+    File downsampled_bai = "~{basename}_~{desiredCoverage}x.bai"
+  }
+}
+
 
 task Filter {
     input {
@@ -295,6 +359,7 @@ task MitoHifiAsm{
         File reads
         File reffa
         File refgb
+        String prefix
         Int num_cpus
     }
 
@@ -304,11 +369,13 @@ task MitoHifiAsm{
         #set -euxo pipefail
         mitohifi.py -r ~{reads} -f ~{reffa} -g ~{refgb} -t ~{num_cpus} -o 1 
         ls -l
+        mv final_mitogenome.fasta ~{prefix}.fasta
+        mv contigs_stats.tsv ~{prefix}_contig_stats.tsv
     >>>
 
     output{
-        File final_fa="final_mitogenome.fasta"
-        File final_stats="contigs_stats.tsv"
+        File final_fa="~{prefix}.fasta"
+        File final_stats="~{prefix}_contig_stats.tsv"
         File mapping_file = "coverage_mapping/HiFi-vs-final_mitogenome.sorted.bam"
         
 
