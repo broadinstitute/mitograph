@@ -546,7 +546,7 @@ fn write_bed(
     writeln!(file, "##haplotype=majorhaplotype")?;
     writeln!(
         file,
-        "#CHROM\tRef_start\tRef_end\tAsm_start\tAsm_end\tMod_rate\tUnmod_rate\tCov\tMod_count\tUnmod_count"
+        "#CHROM\tRef_start\tRef_end\tAsm_start\tAsm_end\tMotif\tMod_rate\tUnmod_rate\tCov\tMod_count\tUnmod_count"
     )?;
     // let min_prob = 0.5;
     // let mut methylation_signal: HashMap<(usize, Option<usize>), (f64, f64)> = HashMap::new();
