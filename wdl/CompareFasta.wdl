@@ -153,7 +153,6 @@ task downsampleBam {
   }
 }
 
-
 task Filter {
     input {
         File bam
@@ -175,7 +174,7 @@ task Filter {
         docker: "hangsuunc/mitograph:v3"
         memory: "1 GB"
         cpu: 1
-        disks: "local-disk 100 SSD"
+        disks: "local-disk 300 SSD"
     }
 }
 
@@ -191,7 +190,7 @@ task Build {
     command <<<
         set -euxo pipefail
 
-        /mitograph/target/release/mitograph build -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa ~{bam}
+        /mitograph/target/release/mitograph build -i ~{bam} -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa 
 
     >>>
 
@@ -211,22 +210,55 @@ task Call {
 
     input {
         File graph_gfa
-        File reference
-        String reference_name
+        File reference_fa
         String prefix
         String sampleid
         Int kmer_size
     }
+    
+    
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_name} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
+        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_fa} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
+        ls
 
     >>>
 
     output {
-        # File graph = "~{prefix}.annotated.gfa"
+        File graph = "~{sampleid}.~{prefix}.annotated.gfa"
+        File matrix = "~{sampleid}.~{prefix}.matrix.csv"
         File vcf = "~{sampleid}.~{prefix}.vcf"
+    }
+
+    runtime {
+        docker: "hangsuunc/mitograph:v3"
+        memory: "2 GB"
+        cpu: 1
+        disks: "local-disk 10 SSD"
+    }
+}
+
+task Methyl {
+
+    input {
+        File graph_gfa
+        File bam
+        String sampleid
+        String prefix = "methyl"
+        Float min_prob
+    }
+
+    command <<<
+        set -euxo pipefail
+        /mitograph/target/release/mitograph methyl -g ~{graph_gfa} -p ~{min_prob} -b ~{bam} -o ~{sampleid}.~{prefix}.bed
+
+    >>>
+
+    output {
+        File graph = "~{sampleid}.~{prefix}.methyl.gfa"
+        File matrix = "~{sampleid}.~{prefix}.methylation_per_read.csv"
+        File bed = "~{sampleid}.~{prefix}.bed"
     }
 
     runtime {
