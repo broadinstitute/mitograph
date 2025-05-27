@@ -14,13 +14,12 @@ workflow MixSamples {
         File reference_fa
         File reference_fai
         File reference_dict
+        Array[Int] desiredCoverages
         Array[Float] first_proportion_list
-        Int desiredCoverage
         Int kmer_size = 21
 
         String sampleid
         String region = "chrM"
-        String reference_header
         String vcf_score_field_mitograph
         String query_field_mitograph
         String vcf_score_field_mutect2
@@ -43,9 +42,6 @@ workflow MixSamples {
             prefix = sampleid
     }
 
-
-
-
     call merge_vcf {
         input:
         first_donor_vcf = first_donor_vcf,
@@ -56,94 +52,100 @@ workflow MixSamples {
         prefix = sampleid,
     }
 
-    scatter (first_proportion in first_proportion_list)  {
-        call downsampleBam {input:
-            first_input_bam = first_donor_coverage.subsetbam,
-            first_input_bam_bai = first_donor_coverage.subsetbai,
-            second_input_bam = second_donor_coverage.subsetbam,
-            second_input_bam_bai = second_donor_coverage.subsetbai,
-            basename = sampleid,
-            desiredCoverage = desiredCoverage,
-            fraction = first_proportion,
-            currentCoverage1 = first_donor_coverage.coverage,
-            currentCoverage2 = second_donor_coverage.coverage,
-            preemptible_tries = 0
+    scatter (desiredCoverage in desiredCoverages) {
+        scatter (first_proportion in first_proportion_list)  {
+            call downsampleBam {input:
+                first_input_bam = first_donor_coverage.subsetbam,
+                first_input_bam_bai = first_donor_coverage.subsetbai,
+                second_input_bam = second_donor_coverage.subsetbam,
+                second_input_bam_bai = second_donor_coverage.subsetbai,
+                basename = sampleid,
+                desiredCoverage = desiredCoverage,
+                fraction = first_proportion,
+                currentCoverage1 = first_donor_coverage.coverage,
+                currentCoverage2 = second_donor_coverage.coverage,
+                preemptible_tries = 0
+            }
+
+            call mix_sample {
+                input:
+                    first_donor_bam = downsampleBam.downsampled_bam_1,
+                    first_donor_bai = downsampleBam.downsampled_bai_1,
+                    second_donor_bam = downsampleBam.downsampled_bam_2,
+                    second_donor_bai = downsampleBam.downsampled_bam_2,
+                    prefix = sampleid
+            }
+
+            call Mutect2 {
+                input:
+                    bam = mix_sample.merged_bam,
+                    bai = mix_sample.merged_bai,
+                    reference_fasta = reference_fa,
+                    reference_fasta_fai = reference_fai,
+                    reference_fasta_dict = reference_dict,
+                    prefix = sampleid,
+            }
+
+            # call mitograph assembly
+            call Filter {
+                    input:
+                        bam = mix_sample.merged_bam,
+                        bai =  mix_sample.merged_bai,
+                        prefix = sampleid
+                }
+
+            call Build {
+                input:
+                    bam = Filter.mt_bam,
+                    reference = reference_fa,
+                    prefix = sampleid,
+                    kmer_size = kmer_size,
+                    sampleid = sampleid
+            }
+
+            call Call {
+                input:
+                    graph_gfa = Build.graph,
+                    reference_fa = reference_fa,
+                    prefix = desiredCoverage,
+                    kmer_size = kmer_size,
+                    sampleid=sampleid
+            }
+
+
+            call VCFEval as Mitograph_Eval {
+                input:
+                    query_vcf = Call.vcf,
+                    reference_fa = reference_fa,
+                    reference_fai = reference_fai,
+                    query_output_sample_name = sampleid + "_" + desiredCoverage + "_" + first_proportion,
+                    base_vcf = merge_vcf.truth_vcf,
+                    base_vcf_index = merge_vcf.truth_tbi,
+                    vcf_score_field = vcf_score_field_mitograph,
+                    query_field = query_field_mitograph,
+                    threshold = first_proportion,
+                    fraction = first_proportion
+            }
+
+            call VCFEval as Mutect2_Eval {
+                input:
+                    query_vcf = Mutect2.vcf,
+                    reference_fa = reference_fa,
+                    reference_fai = reference_fai,
+                    query_output_sample_name = sampleid + "_" + desiredCoverage + "_" + first_proportion,
+                    base_vcf = merge_vcf.truth_vcf,
+                    base_vcf_index = merge_vcf.truth_tbi,
+                    vcf_score_field = vcf_score_field_mutect2,
+                    query_field = query_field_mutect2,
+                    threshold = first_proportion,
+                    fraction = first_proportion
+            }
         }
 
-        call mix_sample {
-            input:
-                first_donor_bam = downsampleBam.downsampled_bam_1,
-                first_donor_bai = downsampleBam.downsampled_bai_1,
-                second_donor_bam = downsampleBam.downsampled_bam_2,
-                second_donor_bai = downsampleBam.downsampled_bam_2,
-                prefix = sampleid
-        }
-        call Mutect2 {
-            input:
-                bam = mix_sample.merged_bam,
-                bai = mix_sample.merged_bai,
-                reference_fasta = reference_fa,
-                reference_fasta_fai = reference_fai,
-                reference_fasta_dict = reference_dict,
-                prefix = sampleid,
-        }
-        call Filter {
-            input:
-                bam = mix_sample.merged_bam,
-                bai = mix_sample.merged_bai,
-                prefix = sampleid
-        }
-
-        call Build {
-            input:
-                bam = Filter.mt_bam,
-                reference = reference_fa,
-                prefix = sampleid,
-                kmer_size = kmer_size,
-                sampleid = sampleid
-        }
-
-        call Call {
-            input:
-                graph_gfa = Build.graph,
-                reference = reference_fa,
-                reference_name = reference_header,
-                prefix = sampleid,
-                kmer_size = kmer_size,
-                sampleid=sampleid
-        }
-
-        call VCFEval as Mitograph_Eval {
-            input:
-                query_vcf = Call.vcf,
-                reference_fa = reference_fa,
-                reference_fai = reference_fai,
-                query_output_sample_name = sampleid,
-                base_vcf = merge_vcf.truth_vcf,
-                base_vcf_index = merge_vcf.truth_tbi,
-                vcf_score_field = vcf_score_field_mitograph,
-                query_field = query_field_mitograph,
-                threshold = first_proportion,
-                fraction = first_proportion
-        }
-
-        call VCFEval as Mutect2_Eval {
-            input:
-                query_vcf = Mutect2.vcf,
-                reference_fa = reference_fa,
-                reference_fai = reference_fai,
-                query_output_sample_name = sampleid,
-                base_vcf = merge_vcf.truth_vcf,
-                base_vcf_index = merge_vcf.truth_tbi,
-                vcf_score_field = vcf_score_field_mutect2,
-                query_field = query_field_mutect2,
-                threshold = first_proportion,
-                fraction = first_proportion
-        }
     }
     output {
-        Array[File] mitograph_summary_file = Mitograph_Eval.summary_statistics
-        Array[File] mutect2_summary_file = Mutect2_Eval.summary_statistics
+        Array[Array[File]] mitograph_summary_file = Mitograph_Eval.summary_statistics
+        Array[Array[File]] mutect2_summary_file = Mutect2_Eval.summary_statistics
     }
 }
 
@@ -375,7 +377,7 @@ task Filter {
         docker: "hangsuunc/mitograph:v3"
         memory: "1 GB"
         cpu: 1
-        disks: "local-disk 100 SSD"
+        disks: "local-disk 300 SSD"
     }
 }
 
@@ -391,7 +393,7 @@ task Build {
     command <<<
         set -euxo pipefail
 
-        /mitograph/target/release/mitograph build -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa ~{bam}
+        /mitograph/target/release/mitograph build -i ~{bam} -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa 
 
     >>>
 
@@ -411,21 +413,24 @@ task Call {
 
     input {
         File graph_gfa
-        File reference
-        String reference_name
+        File reference_fa
         String prefix
         String sampleid
         Int kmer_size
     }
+    
+    
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_name} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
+        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_fa} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
+        ls
 
     >>>
 
     output {
-        # File graph = "~{prefix}.annotated.gfa"
+        File graph = "~{sampleid}.~{prefix}.annotated.gfa"
+        File matrix = "~{sampleid}.~{prefix}.matrix.csv"
         File vcf = "~{sampleid}.~{prefix}.vcf"
     }
 
@@ -436,6 +441,7 @@ task Call {
         disks: "local-disk 10 SSD"
     }
 }
+
 
 struct RuntimeAttributes {
     Int disk_size
@@ -454,7 +460,7 @@ task VCFEval {
         File base_vcf_index
         String vcf_score_field
         String query_field
-        Float threshold
+        Float threshold = 0
         Float fraction
 
         # Runtime params
@@ -462,8 +468,8 @@ task VCFEval {
         RuntimeAttributes runtimeAttributes = {"disk_size": ceil(2 * size(query_vcf, "GB") + 2 * size(base_vcf, "GB") + size(reference_fa, "GB")) + 50,
                                                   "cpu": 8, "memory": 16}
     }
-    Float threshold1 = threshold + 0.01
-    String query_info = "${query_field}\\<${threshold1}" # extract heteroplasmic variants
+    # Float threshold1 = threshold - 0.01
+    String query_info = "${query_field}\\>${threshold}" # extract heteroplasmic variants
     
 
     command <<<
@@ -558,9 +564,9 @@ task merge_vcf {
                 -o second.normed.vcf.gz 
         bcftools index -t second.normed.vcf.gz
 
-        # bcftools merge ~{first_donor_vcf} ~{second_donor_vcf} -O z -o ~{prefix}.merged.vcf.gz
-        bcftools view -H first.normed.vcf.gz
-        bcftools isec -C first.normed.vcf.gz second.normed.vcf.gz -w1 -O z -o ~{prefix}.merged.vcf.gz
+        bcftools merge ~{first_donor_vcf} ~{second_donor_vcf} -O z -o ~{prefix}.merged.vcf.gz
+        # bcftools view -H first.normed.vcf.gz
+        # bcftools isec -C first.normed.vcf.gz second.normed.vcf.gz -w1 -O z -o ~{prefix}.merged.vcf.gz
         bcftools index -t ~{prefix}.merged.vcf.gz
         
 
