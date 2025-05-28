@@ -122,7 +122,7 @@ workflow MixSamples {
                     base_vcf_index = merge_vcf.truth_tbi,
                     vcf_score_field = vcf_score_field_mitograph,
                     query_field = query_field_mitograph,
-                    threshold = first_proportion,
+                    threshold = 0,
                     fraction = first_proportion
             }
 
@@ -136,7 +136,7 @@ workflow MixSamples {
                     base_vcf_index = merge_vcf.truth_tbi,
                     vcf_score_field = vcf_score_field_mitorsaw,
                     query_field = query_field_mitorsaw,
-                    threshold = first_proportion,
+                    threshold = 0,
                     fraction = first_proportion
             }
         }
@@ -479,8 +479,8 @@ task VCFEval {
         bcftools index -t ~{query_vcf}.vcf.gz
 
         # extract AF from query vcf file
-        bcftools view -i  ~{query_info} ~{query_vcf}.vcf.gz -O z -o ~{query_output_sample_name}.query.~{threshold}.vcf.gz
-        bcftools index -t ~{query_output_sample_name}.query.~{threshold}.vcf.gz
+        bcftools view -i  ~{query_info} ~{query_vcf}.vcf.gz -O z -o ~{query_output_sample_name}.query.~{fraction}.vcf.gz
+        bcftools index -t ~{query_output_sample_name}.query.~{fraction}.vcf.gz
         
         # split multiallelic sites in the base_vcf
         bcftools norm \
@@ -494,7 +494,7 @@ task VCFEval {
         rtg format -o rtg_ref ~{reference_fa}
         rtg vcfeval \
             -b ~{base_vcf}.normed.vcf.gz  \
-            -c ~{query_output_sample_name}.query.~{threshold}.vcf.gz \
+            -c ~{query_output_sample_name}.query.~{fraction}.vcf.gz \
             -o reg \
             -t rtg_ref \
             --squash-ploidy \
@@ -672,7 +672,7 @@ task Mitorsaw {
 
     command <<<
         set -euxo pipefail
-        mitorsaw-v0.2.0-x86_64-unknown-linux-gnu/mitorsaw haplotype \
+        /mitorsaw-v0.2.0-x86_64-unknown-linux-gnu/mitorsaw haplotype \
             --reference ~{reference_fasta} \
             --bam ~{bam} \
             --output-vcf ~{prefix}.mitorsaw.vcf.gz \
