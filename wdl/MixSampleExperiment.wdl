@@ -22,8 +22,8 @@ workflow MixSamples {
         String region = "chrM"
         String vcf_score_field_mitograph
         String query_field_mitograph
-        String vcf_score_field_mutect2
-        String query_field_mutect2
+        String vcf_score_field_mitorsaw
+        String query_field_mitorsaw
 
     }
 
@@ -76,13 +76,12 @@ workflow MixSamples {
                     prefix = sampleid
             }
 
-            call Mutect2 {
+            call Mitorsaw {
                 input:
                     bam = mix_sample.merged_bam,
                     bai = mix_sample.merged_bai,
                     reference_fasta = reference_fa,
                     reference_fasta_fai = reference_fai,
-                    reference_fasta_dict = reference_dict,
                     prefix = sampleid,
             }
 
@@ -123,21 +122,21 @@ workflow MixSamples {
                     base_vcf_index = merge_vcf.truth_tbi,
                     vcf_score_field = vcf_score_field_mitograph,
                     query_field = query_field_mitograph,
-                    threshold = first_proportion,
+                    threshold = 0,
                     fraction = first_proportion
             }
 
-            call VCFEval as Mutect2_Eval {
+            call VCFEval as Mitorsaw_Eval {
                 input:
-                    query_vcf = Mutect2.vcf,
+                    query_vcf = Mitorsaw.vcf,
                     reference_fa = reference_fa,
                     reference_fai = reference_fai,
                     query_output_sample_name = sampleid + "_" + desiredCoverage + "_" + first_proportion,
                     base_vcf = merge_vcf.truth_vcf,
                     base_vcf_index = merge_vcf.truth_tbi,
-                    vcf_score_field = vcf_score_field_mutect2,
-                    query_field = query_field_mutect2,
-                    threshold = first_proportion,
+                    vcf_score_field = vcf_score_field_mitorsaw,
+                    query_field = query_field_mitorsaw,
+                    threshold = 0,
                     fraction = first_proportion
             }
         }
@@ -145,7 +144,7 @@ workflow MixSamples {
     }
     output {
         Array[Array[File]] mitograph_summary_file = Mitograph_Eval.summary_statistics
-        Array[Array[File]] mutect2_summary_file = Mutect2_Eval.summary_statistics
+        Array[Array[File]] mitorsaw_summary_file = Mitorsaw_Eval.summary_statistics
     }
 }
 
@@ -480,8 +479,8 @@ task VCFEval {
         bcftools index -t ~{query_vcf}.vcf.gz
 
         # extract AF from query vcf file
-        bcftools view -i  ~{query_info} ~{query_vcf}.vcf.gz -O z -o ~{query_output_sample_name}.query.~{threshold}.vcf.gz
-        bcftools index -t ~{query_output_sample_name}.query.~{threshold}.vcf.gz
+        bcftools view -i  ~{query_info} ~{query_vcf}.vcf.gz -O z -o ~{query_output_sample_name}.query.~{fraction}.vcf.gz
+        bcftools index -t ~{query_output_sample_name}.query.~{fraction}.vcf.gz
         
         # split multiallelic sites in the base_vcf
         bcftools norm \
@@ -495,7 +494,7 @@ task VCFEval {
         rtg format -o rtg_ref ~{reference_fa}
         rtg vcfeval \
             -b ~{base_vcf}.normed.vcf.gz  \
-            -c ~{query_output_sample_name}.query.~{threshold}.vcf.gz \
+            -c ~{query_output_sample_name}.query.~{fraction}.vcf.gz \
             -o reg \
             -t rtg_ref \
             --squash-ploidy \
@@ -640,6 +639,62 @@ task Mutect2 {
         preemptible_tries:  2,
         max_retries:        1,
         docker:             "broadinstitute/gatk:4.6.1.0"
+    }
+    RuntimeAttr runtime_attr = select_first([runtime_attr_override, default_attr])
+    runtime {
+        cpu:                    select_first([runtime_attr.cpu_cores,         default_attr.cpu_cores])
+        memory:                 select_first([runtime_attr.mem_gb,            default_attr.mem_gb]) + " GiB"
+        disks: "local-disk " +  select_first([runtime_attr.disk_gb,           default_attr.disk_gb]) + " HDD"
+        bootDiskSizeGb:         select_first([runtime_attr.boot_disk_gb,      default_attr.boot_disk_gb])
+        preemptible:            select_first([runtime_attr.preemptible_tries, default_attr.preemptible_tries])
+        maxRetries:             select_first([runtime_attr.max_retries,       default_attr.max_retries])
+        docker:                 select_first([runtime_attr.docker,            default_attr.docker])
+    }
+}
+
+task Mitorsaw {
+
+    meta {
+        description : "Call Mitochondrial variants using mitorsaw"
+    }
+
+    input {
+        File bam
+        File bai
+        File reference_fasta
+        File reference_fasta_fai
+        String prefix
+
+        RuntimeAttr? runtime_attr_override
+    }
+
+    Int disk_size = 4*ceil(size([bam, bai], "GB"))
+
+    command <<<
+        set -euxo pipefail
+        /mitorsaw-v0.2.0-x86_64-unknown-linux-gnu/mitorsaw haplotype \
+            --reference ~{reference_fasta} \
+            --bam ~{bam} \
+            --output-vcf ~{prefix}.mitorsaw.vcf.gz \
+            --output-hap-stats ~{prefix}.mitorsaw.stat
+
+    >>>
+
+    output {
+        File vcf = "~{prefix}.mitorsaw.vcf.gz"
+        File tbi = "~{prefix}.mitorsaw.vcf.gz.tbi"
+        File stats = "~{prefix}.mitorsaw.stat"
+    }
+
+    #########################
+    RuntimeAttr default_attr = object {
+        cpu_cores:          1,
+        mem_gb:             10,
+        disk_gb:            disk_size,
+        boot_disk_gb:       10,
+        preemptible_tries:  2,
+        max_retries:        1,
+        docker:             "hangsuunc/mitorsaw:v1"
     }
     RuntimeAttr runtime_attr = select_first([runtime_attr_override, default_attr])
     runtime {
