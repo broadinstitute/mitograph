@@ -1,6 +1,6 @@
 version 1.0
 
-workflow mitograph_updated {
+workflow Himito_methyl {
     input {
         File whole_genome_bam
         File whole_genome_bai
@@ -71,7 +71,7 @@ task Filter {
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph filter -i ~{bam} -c chrM -m ~{prefix}_mt.bam -n ~{prefix}_numts.bam
+        /Himito/target/release/Himito filter -i ~{bam} -c chrM -m ~{prefix}_mt.bam -n ~{prefix}_numts.bam
     >>>
 
     output {
@@ -80,7 +80,7 @@ task Filter {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v3"
+        docker: "hangsuunc/himito:v1"
         memory: "1 GB"
         cpu: 1
         disks: "local-disk 300 SSD"
@@ -99,7 +99,7 @@ task Build {
     command <<<
         set -euxo pipefail
 
-        /mitograph/target/release/mitograph build -i ~{bam} -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa 
+        /Himito/target/release/Himito build -i ~{bam} -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa 
 
     >>>
 
@@ -108,7 +108,7 @@ task Build {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v3"
+        docker: "hangsuunc/himito:v1"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"
@@ -129,7 +129,7 @@ task Call {
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_fa} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
+        /Himito/target/release/Himito call -g ~{graph_gfa} -r ~{reference_fa} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
         ls
 
     >>>
@@ -141,7 +141,7 @@ task Call {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v3"
+        docker: "hangsuunc/himito:v1"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"
@@ -160,7 +160,7 @@ task Methyl {
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph methyl -g ~{graph_gfa} -p ~{min_prob} -b ~{bam} -o ~{sampleid}.~{prefix}.bed
+        /Himito/target/release/Himito methyl -g ~{graph_gfa} -p ~{min_prob} -b ~{bam} -o ~{sampleid}.~{prefix}.bed
 
     >>>
 
@@ -171,7 +171,7 @@ task Methyl {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v3"
+        docker: "hangsuunc/himito:v1"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"
@@ -188,7 +188,7 @@ task Asm {
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph asm -g ~{graph_gfa} -s ~{sampleid} -o ~{sampleid}.~{prefix}.fasta
+        /Himito/target/release/Himito asm -g ~{graph_gfa} -s ~{sampleid} -o ~{sampleid}.~{prefix}.fasta
 
     >>>
 
@@ -197,7 +197,7 @@ task Asm {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v3"
+        docker: "hangsuunc/himito:v1"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"

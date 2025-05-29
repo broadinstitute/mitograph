@@ -5,7 +5,7 @@ RUN apt-get install -y --no-install-recommends git ssh build-essential make cmak
     && rm -rf /var/lib/apt/lists/*
 
 RUN git config --global http.sslverify false
-RUN git clone https://github.com/broadinstitute/mitograph.git \ 
-    && cd mitograph \
+RUN git clone https://github.com/broadinstitute/Himito.git \ 
+    && cd Himito \
     && cargo build --release
 

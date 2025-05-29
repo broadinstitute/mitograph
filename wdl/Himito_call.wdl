@@ -1,6 +1,6 @@
 version 1.0
 
-workflow mitograph {
+workflow Himito_call {
     input {
         File whole_genome_bam
         File whole_genome_bai
@@ -53,7 +53,7 @@ task Filter {
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph filter -i ~{bam} -c chrM -m ~{prefix}_mt.bam -n ~{prefix}_numts.bam
+        /Himito/target/release/Himito filter -i ~{bam} -c chrM -m ~{prefix}_mt.bam -n ~{prefix}_numts.bam
     >>>
 
     output {
@@ -62,7 +62,7 @@ task Filter {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v2"
+        docker: "hangsuunc/himito:v1"
         memory: "1 GB"
         cpu: 1
         disks: "local-disk 100 SSD"
@@ -81,7 +81,7 @@ task Build {
     command <<<
         set -euxo pipefail
 
-        /mitograph/target/release/mitograph build -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa ~{bam}
+        /Himito/target/release/Himito build -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa ~{bam}
 
     >>>
 
@@ -90,7 +90,7 @@ task Build {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v2"
+        docker: "hangsuunc/himito:v1"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"
@@ -110,7 +110,7 @@ task Call {
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_name} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
+        /Himito/target/release/Himito call -g ~{graph_gfa} -r ~{reference_name} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
 
     >>>
 
@@ -120,7 +120,7 @@ task Call {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v2"
+        docker: "hangsuunc/himito:v1"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"
