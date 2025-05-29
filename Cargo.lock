@@ -3,6 +3,26 @@
 version = 3
 
 [[package]]
+name = "Himito"
+version = "0.1.0"
+dependencies = [
+ "adjustp",
+ "bio",
+ "clap",
+ "csv",
+ "flate2",
+ "indicatif",
+ "ndarray 0.15.6",
+ "rand",
+ "rayon",
+ "regex",
+ "rust-htslib",
+ "serde",
+ "serde_json",
+ "statrs 0.16.1",
+]
+
+[[package]]
 name = "adjustp"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -918,26 +938,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2d80299ef12ff69b16a84bb182e3b9df68b5a91574d3d4fa6e41b65deec4df1"
 dependencies = [
  "adler2",
-]
-
-[[package]]
-name = "mitograph"
-version = "0.1.0"
-dependencies = [
- "adjustp",
- "bio",
- "clap",
- "csv",
- "flate2",
- "indicatif",
- "ndarray 0.15.6",
- "rand",
- "rayon",
- "regex",
- "rust-htslib",
- "serde",
- "serde_json",
- "statrs 0.16.1",
 ]
 
 [[package]]
