@@ -1,4 +1,4 @@
-# mitograph
+# Himito
 
 Building Mitochondrial anchor-based graphical genome from long reads. Filter Numts reads, assemble major haplotypes, call homoplasmic and heteroplasmic variants, analyze methylation signals
 
