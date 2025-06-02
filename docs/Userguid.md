@@ -59,7 +59,7 @@ Here's a basic workflow to get started with Himito:
 ./target/release/Himito methyl -g <output.annotated.gfa> -p <min_prob> -b <mt_test.bam> -o <methyl.bed>
 ```
 
-Himito Docker can be downloaded at docker hub: [hangsuunc/Himito:v1]{https://hub.docker.com/r/hangsuunc/himito}.
+Himito Docker can be downloaded at docker hub: [hangsuunc/Himito:v1](https://hub.docker.com/r/hangsuunc/himito).
 
 ## Commands
 ### filter - Remove NUMTs Reads
