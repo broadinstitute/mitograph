@@ -1,11 +1,6 @@
 # Himito User Guide
 
 ## Overview
-Himito is a graph-based toolkit for genetic and epigenetic mitochondrial analysis using long-read sequencing data. It provides a comprehensive pipeline for mitochondrial genome analysis, including filtering nuclear mitochondrial sequences (NUMTs), assembling major haplotypes, calling variants, and analyzing methylation signals.
-
-# Himito User Guide
-
-## Overview
 
 Himito is a specialized tool for building mitochondrial anchor-based graphical genomes from long-read sequencing data. It provides a comprehensive pipeline for mitochondrial genome analysis, including filtering nuclear mitochondrial sequences (NUMTs), assembling major haplotypes, calling variants, and analyzing methylation signals.
 
@@ -72,10 +67,10 @@ Separates genuine mitochondrial reads from nuclear mitochondrial sequences (NUMT
 ./target/release/Himito filter [OPTIONS]
 ```
 Required Parameters:
--i, --input <FILE>: Input BAM file containing long reads
--c, --chromosome <STRING>: Mitochondrial chromosome name (e.g., "chrM", "MT", "M")
--m, --mt-output <FILE>: Output BAM file for mitochondrial reads
--n, --numts-output <FILE>: Output BAM file for NUMTs reads
+- -i, --input <FILE>: Input BAM file containing long reads
+- -c, --chromosome <STRING>: Mitochondrial chromosome name (e.g., "chrM", "MT", "M")
+- -m, --mt-output <FILE>: Output BAM file for mitochondrial reads
+- -n, --numts-output <FILE>: Output BAM file for NUMTs reads
 
 Example:
 ```
@@ -89,10 +84,10 @@ Creates a graph representation of the mitochondrial genome from filtered reads.
 ./target/release/Himito build [OPTIONS]
 ```
 Required Parameters:
--i, --input <FILE>: Input BAM file (mitochondrial reads only)
--k, --kmer-size <INT>: K-mer size for graph construction
--r, --reference <FILE>: Mitochondrial reference genome (FASTA)
--o, --output <FILE>: Output graph file (GFA format)
+- -i, --input <FILE>: Input BAM file (mitochondrial reads only)
+- -k, --kmer-size <INT>: K-mer size for graph construction
+- -r, --reference <FILE>: Mitochondrial reference genome (FASTA)
+- -o, --output <FILE>: Output graph file (GFA format)
 
 Example:
 ```
