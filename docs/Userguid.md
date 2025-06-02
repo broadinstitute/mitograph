@@ -59,6 +59,8 @@ Here's a basic workflow to get started with Himito:
 ./target/release/Himito methyl -g <output.annotated.gfa> -p <min_prob> -b <mt_test.bam> -o <methyl.bed>
 ```
 
+Himito Docker can be downloaded at docker hub: hangsuunc/Himito:v1.
+
 ## Commands
 ### filter - Remove NUMTs Reads
 Separates genuine mitochondrial reads from nuclear mitochondrial sequences (NUMTs).
@@ -95,3 +97,143 @@ Example:
 ```
 ### call - Variant Calling
 Identifies homoplasmic and heteroplasmic variants from the mitochondrial graph.
+
+```
+./target/release/Himito call [OPTIONS]
+```
+
+Required Parameters:
+- -g, --graph <FILE>: Input graph file (GFA format)
+- -r, --reference <FILE>: Mitochondrial reference genome (FASTA)
+- -k, --kmer-size <INT>: K-mer size (should match build step)
+- -s, --sample-id <STRING>: Sample identifier
+- -o, --output <FILE>: Output VCF file
+
+Example:
+
+```
+./target/release/Himito call -g HG002_mt.gfa -r rCRS.fasta -k 21 -s HG002 -o HG002_variants.vcf
+```
+
+### asm - Primary Assembly Extraction
+Extracts the major haplotype sequence from the mitochondrial graph.
+
+```
+./target/release/Himito asm [OPTIONS]
+```
+
+Required Parameters:
+- -g, --graph <FILE>: Input graph file (GFA format)
+- -o, --output <FILE>: Output FASTA file
+- -s, --header <STRING>: FASTA header string
+
+Example:
+```
+./target/release/Himito asm -g HG002_mt.gfa -o HG002_major_hap.fasta -s "HG002 mitochondrial major haplotype"
+```
+
+### methyl - Methylation Analysis
+Analyzes methylation signals from the mitochondrial reads.
+
+```
+./target/release/Himito methyl [OPTIONS]
+```
+
+Required Parameters:
+- -g, --graph <FILE>: Input annotated graph file (GFA format)
+- -p, --min-prob <FLOAT>: Minimum probability threshold for methylation calls
+- -b, --bam <FILE>: Input BAM file with methylation tags
+- -o, --output <FILE>: Output BED file
+
+Example:
+```
+./target/release/Himito methyl -g HG002_mt.annotated.gfa -p 0.7 -b HG002_mt.bam -o HG002_methylation.bed
+```
+
+## Workflows
+### WDL Workflows
+
+Himito includes WDL (Workflow Description Language) workflows for running on cloud platforms. Check the wdl/ directory for available workflows.
+
+Basic Analysis Pipeline (wdl/Himito_methyl.wdl)
+
+- Quality Control: Ensure your BAM file is properly indexed and contains long reads
+- Filtering: Remove NUMTs contamination using the filter command
+- Graph Construction: Build the mitochondrial graph with appropriate k-mer size
+- Variant Calling: Identify variants and estimate heteroplasmy levels
+- Assembly: Extract consensus sequences for downstream analysis
+- Methylation: Analyze epigenetic modifications (if data available)
+
+
+## Input Requirements
+### BAM File Requirements
+- Must be coordinate-sorted and indexed (.bai file)
+
+- Should contain long reads (PacBio, Oxford Nanopore)
+
+- Reads should be mapped to a reference genome including mitochondrial chromosome
+
+- For methylation analysis: BAM should contain modification tags (MM, ML tags)
+
+### Reference Genome
+- Mitochondrial reference in FASTA format
+- Common references: NC_012920.1 (revised Cambridge Reference Sequence)
+- Should match the reference used for initial read mapping
+
+## Output Files
+### Graph Files (.gfa)
+- Contains the mitochondrial genome graph structure
+- Can be visualized with tools like Bandage
+- Used as input for variant calling and assembly and methylation analysis
+### Variant Files (.vcf)
+- Standard VCF format with mitochondrial variants
+- Includes heteroplasmy frequency estimates
+- Compatible with standard VCF analysis tools
+### Binary matrix for Presence of variants in each read (.csv)
+- presence-absence matrix representing variants in each read
+### Assembly Files (.fasta)
+- Primary mitochondrial genome sequence
+- Represents the major haplotype
+- Can be used for phylogenetic analysis
+### Methylation Files (.bed)
+- BED format with methylation sites
+- Includes probability scores and coverage information
+- Compatible with methylation analysis tools
+### read-level methylation matrix (.csv)
+- Element is the methylation likelihood of each CpG site
+
+## Best Practices
+### Data Preparation
+1. Use whole-genome long-read data (>50X mitochondrial coverage)
+- Use recent mitochondrial reference sequences (rCRS)
+### Parameter Optimization
+- Test different k-mer sizes for your specific dataset
+- Adjust methylation thresholds based on your coverage and accuracy requirements
+- Consider running multiple iterations with different parameters
+### Quality Control
+- Check the number of reads filtered as NUMTs vs. genuine mitochondrial
+- Verify graph connectivity and complexity
+- Validate variant calls against known mitochondrial polymorphisms
+
+## Troubleshooting
+### Common Issues
+#### Low mitochondrial read count after filtering
+- Check chromosome naming convention (chrM vs. MT vs. M)
+- Verify input BAM contains mitochondrial reads
+- Consider adjusting filtering parameters
+    - increase parameter -f in Himito filter
+#### Graph construction fails
+- Check reference genome format and completeness
+- Check reference genome naming convention
+- Ensure sufficient coverage of mitochondrial genome
+- Try different k-mer sizes
+#### No variants called
+- Verify graph file integrity
+- Check reference file is identical to the Himito Build process
+- Consider lowering variant calling thresholds
+
+## Getting Help
+For additional support: Please submit an issue in the Himito GitHub repository
+
+## Citation
+The preprint is coming soon...
