@@ -2,6 +2,9 @@
 
 Building Mitochondrial anchor-based graphical genome from long reads. Filter Numts reads, assemble major haplotypes, call homoplasmic and heteroplasmic variants, analyze methylation signals
 
+## Documentation
+[User Guide](https://github.com/broadinstitute/Himito/blob/main/docs/Userguid.md)
+
 ## Usage
 ### install rust
 ```
