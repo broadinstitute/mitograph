@@ -71,8 +71,12 @@ task SubsetandSplit {
         samtools view -bhX ~{bam} ~{bai} ~{locus} > ~{prefix}.bam
         samtools index ~{prefix}.bam
 
-        samtools view -b -d HP:1 ~{prefix}.bam | samtools depth -r ~{locus} | awk '{sum+=$3} END {print sum/NR}' > coverage_1.txt
-        samtools view -b -d HP:2 ~{prefix}.bam | samtools depth -r ~{locus} | awk '{sum+=$3} END {print sum/NR}' > coverage_2.txt
+        samtools view -h ~{prefix}.bam | grep -E "^@|HP:i:1" | samtools view -bS - > hap1.bam
+        samtools view -h ~{prefix}.bam | grep -E "^@|HP:i:2" | samtools view -bS - > hap2.bam
+
+
+        samtools depth -r ~{locus} hap1.bam | awk '{sum+=$3} END {print sum/NR}' > coverage_1.txt
+        samtools depth -r ~{locus} hap2.bam | awk '{sum+=$3} END {print sum/NR}' > coverage_2.txt
     >>>
 
     output {
