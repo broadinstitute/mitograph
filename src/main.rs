@@ -10,7 +10,7 @@ mod filter;
 mod methyl;
 
 #[derive(Debug, Parser)]
-#[clap(name = "mitograph")]
+#[clap(name = "Himito")]
 #[clap(about = "Analysis of mitochondrial genome using long reads.", long_about = None)]
 
 struct Cli {

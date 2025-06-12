@@ -82,7 +82,7 @@ workflow MixSamples {
                     bai = mix_sample.merged_bai,
                     reference_fasta = reference_fa,
                     reference_fasta_fai = reference_fai,
-                    prefix = sampleid,
+                    prefix = sampleid
             }
 
             # call mitograph assembly
@@ -364,7 +364,7 @@ task Filter {
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph filter -i ~{bam} -c chrM -m ~{prefix}_mt.bam -n ~{prefix}_numts.bam
+        /Himito/target/release/Himito filter -i ~{bam} -c chrM -m ~{prefix}_mt.bam -n ~{prefix}_numts.bam
     >>>
 
     output {
@@ -373,7 +373,7 @@ task Filter {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v3"
+        docker: "hangsuunc/himito:v1"
         memory: "1 GB"
         cpu: 1
         disks: "local-disk 300 SSD"
@@ -392,7 +392,7 @@ task Build {
     command <<<
         set -euxo pipefail
 
-        /mitograph/target/release/mitograph build -i ~{bam} -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa 
+        /Himito/target/release/Himito build -i ~{bam} -k ~{kmer_size} -r ~{reference} -o ~{sampleid}.~{prefix}.gfa 
 
     >>>
 
@@ -401,7 +401,7 @@ task Build {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v3"
+        docker: "hangsuunc/himito:v1"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"
@@ -422,7 +422,7 @@ task Call {
 
     command <<<
         set -euxo pipefail
-        /mitograph/target/release/mitograph call -g ~{graph_gfa} -r ~{reference_fa} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
+        /Himito/target/release/Himito call -g ~{graph_gfa} -r ~{reference_fa} -k ~{kmer_size} -s ~{sampleid} -o ~{sampleid}.~{prefix}.vcf
         ls
 
     >>>
@@ -434,7 +434,7 @@ task Call {
     }
 
     runtime {
-        docker: "hangsuunc/mitograph:v3"
+        docker: "hangsuunc/himito:v1"
         memory: "2 GB"
         cpu: 1
         disks: "local-disk 10 SSD"
@@ -664,6 +664,7 @@ task Mitorsaw {
         File reference_fasta
         File reference_fasta_fai
         String prefix
+        Float min_af = 0.01
 
         RuntimeAttr? runtime_attr_override
     }
@@ -675,6 +676,7 @@ task Mitorsaw {
         /mitorsaw-v0.2.0-x86_64-unknown-linux-gnu/mitorsaw haplotype \
             --reference ~{reference_fasta} \
             --bam ~{bam} \
+            --minimum-maf ~{min_af} \
             --output-vcf ~{prefix}.mitorsaw.vcf.gz \
             --output-hap-stats ~{prefix}.mitorsaw.stat
 
